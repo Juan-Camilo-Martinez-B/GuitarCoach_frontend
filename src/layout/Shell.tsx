@@ -12,6 +12,9 @@ const LINKS = [
 export function Shell() {
   return (
     <div className="shell">
+      <a className="skip" href="#contenido">
+        Saltar al contenido
+      </a>
       <header className="topbar">
         <p className="brand">GuitarCoach AI</p>
         <nav aria-label="Principal">
