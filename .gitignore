@@ -9,6 +9,11 @@ dist-ssr/
 .vite/
 coverage/
 
+# Playwright
+playwright-report/
+test-results/
+blob-report/
+
 # Sistema
 *.log
 .DS_Store
