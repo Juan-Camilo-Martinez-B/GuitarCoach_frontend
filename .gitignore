@@ -1,0 +1,15 @@
+# Secretos y entorno
+.env
+.env.*.local
+
+# Dependencias y build
+node_modules/
+dist/
+dist-ssr/
+.vite/
+coverage/
+
+# Sistema
+*.log
+.DS_Store
+Thumbs.db
