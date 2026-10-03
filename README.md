@@ -14,3 +14,20 @@ npm run dev
 ```
 
 La aplicación de desarrollo queda en `http://localhost:5173`.
+
+```powershell
+npm run dev
+```
+
+El afinador, la práctica y el informe viven en el navegador. Solo la telemetría y el texto del tutor salen hacia la API (`VITE_API_URL`).
+
+```mermaid
+flowchart LR
+  microfono[Microfono]
+  dsp[DSP en el navegador]
+  api[API]
+  microfono --> dsp
+  dsp -->|telemetria| api
+```
+
+La imagen escucha en el puerto 8080 y nginx envía COOP y COEP. El despliegue a Cloud Run es el workflow manual `desplegar`. La versión 1.0.0 está en `CHANGELOG.md`.
