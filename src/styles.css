@@ -1,0 +1,50 @@
+:root {
+  --ink: #1c1915;
+  --paper: #f4efe6;
+  --wood: #8a4630;
+  --string: #c4a574;
+  --good: #2f6b4f;
+  --bad: #9b3a2f;
+  --font: "Segoe UI", sans-serif;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font);
+}
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid var(--string);
+}
+
+.brand {
+  margin: 0;
+  font-weight: 700;
+}
+
+nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+nav a {
+  color: var(--wood);
+}
+
+main {
+  padding: 1.5rem;
+  max-width: 48rem;
+}
+
+button,
+input {
+  font: inherit;
+}
