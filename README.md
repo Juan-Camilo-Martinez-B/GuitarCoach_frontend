@@ -1,11 +1,16 @@
 # GuitarCoach Frontend
 
-Aplicación web del tutor de guitarra GuitarCoach AI (React, TypeScript y Vite).
+Aplicación web del tutor de guitarra. El audio del micrófono se procesa en el navegador y no se envía al servidor.
 
-Este repositorio está en la **Fase 0**: solo contiene la estructura de carpetas y archivos marcador. No hay dependencias, lógica ni configuración de ejecución.
+## Cómo ejecutarlo
 
-El audio del micrófono se procesa en el navegador y no se envía al servidor.
+Requisitos: Node.js 22.
 
-## Siguiente paso
+```powershell
+npm ci
+npm test
+npm run build
+npm run dev
+```
 
-Inicializar Git en esta carpeta, vincular el remoto de GitHub y crear el primer commit. La implementación empieza al confirmar la Fase 1.
+La aplicación de desarrollo queda en `http://localhost:5173`.
