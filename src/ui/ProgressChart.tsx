@@ -2,7 +2,7 @@ import type { AttemptSummary } from "../domain/types";
 
 export function ProgressChart({ points }: { points: AttemptSummary[] }) {
   if (points.length === 0) {
-    return <p>Todavía no hay intentos.</p>;
+    return <p className="note">Todavía no hay intentos.</p>;
   }
   const coordinates = points
     .map((point, index) => {
@@ -12,8 +12,8 @@ export function ProgressChart({ points }: { points: AttemptSummary[] }) {
     })
     .join(" ");
   return (
-    <svg viewBox="0 0 100 100" role="img" aria-label="Progreso de precisión">
-      <polyline points={coordinates} fill="none" stroke="currentColor" />
+    <svg className="progress" viewBox="0 0 100 100" role="img" aria-label="Progreso de precisión">
+      <polyline points={coordinates} fill="none" stroke="currentColor" strokeWidth="3" />
     </svg>
   );
 }

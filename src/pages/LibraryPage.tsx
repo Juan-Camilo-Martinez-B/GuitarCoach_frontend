@@ -47,25 +47,31 @@ export function LibraryPage() {
   }
 
   return (
-    <main>
-      <h1>Biblioteca</h1>
-      <form onSubmit={(event) => void search(event)}>
+    <main className="page">
+      <header className="page-head">
+        <p className="eyebrow">Cancionero</p>
+        <h1>Biblioteca</h1>
+        <p className="lead">Busca por título o trae una carta nueva.</p>
+      </header>
+      <form className="panel search-bar" onSubmit={(event) => void search(event)}>
         <label>
           Canción
           <input value={query} onChange={(event) => setQuery(event.target.value)} />
         </label>
-        <button type="submit">Buscar</button>
-        <button type="button" onClick={() => void importChart()}>
-          Importar
-        </button>
+        <div className="actions">
+          <button type="submit">Buscar</button>
+          <button className="button-ghost" type="button" onClick={() => void importChart()}>
+            Importar
+          </button>
+        </div>
       </form>
       <StatusMessage state={state} message={message} />
-      <ul>
+      <ul className="songs">
         {titles.map((title) => (
           <li key={title}>{title}</li>
         ))}
       </ul>
-      <p>{message}</p>
+      <p className="hint">{message}</p>
     </main>
   );
 }

@@ -20,24 +20,29 @@ export function LoginPage() {
   }
 
   return (
-    <main>
-      <h1>Entrar</h1>
-      <form onSubmit={onSubmit}>
-        <label>
-          Correo
-          <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" />
-        </label>
-        <label>
-          Contraseña
-          <input
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            type="password"
-          />
-        </label>
-        <button type="submit">Entrar</button>
-      </form>
-      <p role="status">{message}</p>
+    <main className="page page-narrow">
+      <section className="panel auth-card">
+        <p className="eyebrow">Acceso</p>
+        <h1>Entrar</h1>
+        <form className="stack" onSubmit={onSubmit}>
+          <label>
+            Correo
+            <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" />
+          </label>
+          <label>
+            Contraseña
+            <input
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              type="password"
+            />
+          </label>
+          <button type="submit">Entrar</button>
+        </form>
+        <p className="status-pill" role="status">
+          {message}
+        </p>
+      </section>
     </main>
   );
 }

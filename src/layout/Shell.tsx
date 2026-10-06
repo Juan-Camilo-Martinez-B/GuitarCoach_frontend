@@ -1,4 +1,4 @@
-import { Link, Outlet } from "react-router-dom";
+import { Link, NavLink, Outlet } from "react-router-dom";
 
 const LINKS = [
   ["/", "Inicio"],
@@ -16,16 +16,40 @@ export function Shell() {
         Saltar al contenido
       </a>
       <header className="topbar">
-        <p className="brand">GuitarCoach AI</p>
+        <Link to="/" className="brand">
+          <span className="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 36 36" width="36" height="36">
+              <circle cx="18" cy="18" r="16" />
+              <circle cx="18" cy="18" r="6" />
+              <path d="M18 2.5v6.5M18 27v6.5M2.5 18h6.5M27 18h6.5" />
+            </svg>
+          </span>
+          <span className="brand-name">GuitarCoach AI</span>
+        </Link>
         <nav aria-label="Principal">
           {LINKS.map(([path, label]) => (
-            <Link key={path} to={path}>
+            <NavLink
+              key={path}
+              to={path}
+              end={path === "/"}
+              className={({ isActive }) => (isActive ? "nav-link is-active" : "nav-link")}
+            >
               {label}
-            </Link>
+            </NavLink>
           ))}
         </nav>
       </header>
-      <Outlet />
+      <div className="neck" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+        <span />
+        <span />
+        <span />
+      </div>
+      <div id="contenido" className="stage">
+        <Outlet />
+      </div>
     </div>
   );
 }

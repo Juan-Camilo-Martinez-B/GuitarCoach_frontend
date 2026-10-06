@@ -6,10 +6,18 @@ export function StatusMessage({
   message?: string;
 }) {
   if (state === "loading") {
-    return <p role="status">Cargando…</p>;
+    return (
+      <p className="note" role="status">
+        Cargando…
+      </p>
+    );
   }
   if (state === "error") {
-    return <p role="alert">{message}</p>;
+    return (
+      <p className="alert" role="alert">
+        {message}
+      </p>
+    );
   }
   return null;
 }

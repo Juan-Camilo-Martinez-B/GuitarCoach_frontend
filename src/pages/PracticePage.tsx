@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { layoutChart } from "../game/ChartRenderer";
+import { Link } from "react-router-dom";
 import { practiceCommand, type GamePhase } from "../game/GameLoop";
+import { layoutChart } from "../game/ChartRenderer";
 import { useSession } from "../store/session";
 
 export function PracticePage() {
@@ -19,9 +20,17 @@ export function PracticePage() {
 
   if (!song) {
     return (
-      <main>
-        <h1>Práctica</h1>
-        <p>Elige una canción en la biblioteca.</p>
+      <main className="page">
+        <header className="page-head">
+          <p className="eyebrow">Sala de ensayo</p>
+          <h1>Práctica</h1>
+        </header>
+        <section className="empty-stage">
+          <p>Elige una canción en la biblioteca.</p>
+          <Link className="button" to="/biblioteca">
+            Abrir biblioteca
+          </Link>
+        </section>
       </main>
     );
   }
@@ -32,20 +41,28 @@ export function PracticePage() {
   );
 
   return (
-    <main tabIndex={0} onKeyDown={(event) => onKeyDown(event.key)}>
-      <h1>{song.title}</h1>
-      <p>
-        {song.artist} · {song.bpm} BPM
-      </p>
-      <ol aria-label="Carta">
+    <main className="page" tabIndex={0} onKeyDown={(event) => onKeyDown(event.key)}>
+      <header className="page-head">
+        <p className="eyebrow">Carta en curso</p>
+        <h1>{song.title}</h1>
+        <p className="lead">
+          {song.artist} · {song.bpm} BPM
+        </p>
+      </header>
+      <ol className="chart" aria-label="Carta">
         {boxes.map((box) => (
           <li key={`${box.x}-${box.symbol}`}>{box.symbol}</li>
         ))}
       </ol>
-      <button type="button" onClick={() => onKeyDown(" ")}>
-        Empezar
-      </button>
-      <p role="status">{phase === "playing" ? "En curso" : "En espera"}</p>
+      <div className="actions">
+        <button type="button" onClick={() => onKeyDown(" ")}>
+          Empezar
+        </button>
+        <p className="status-pill" role="status">
+          {phase === "playing" ? "En curso" : "En espera"}
+        </p>
+      </div>
+      <p className="hint">Espacio empieza. Enter cierra el intento.</p>
     </main>
   );
 }

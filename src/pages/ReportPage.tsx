@@ -52,27 +52,37 @@ export function ReportPage() {
   }
 
   return (
-    <main>
-      <h1>Informe</h1>
-      <label>
-        Intento
-        <input value={attemptId} onChange={(event) => setAttemptId(event.target.value)} />
-      </label>
-      <button type="button" onClick={() => void ask()}>
-        Pedir informe
-      </button>
-      <button type="button" onClick={() => void load()}>
-        Actualizar
-      </button>
+    <main className="page">
+      <header className="page-head">
+        <p className="eyebrow">Después del intento</p>
+        <h1>Informe</h1>
+        <p className="lead">El tutor resume el cambio que más te costó.</p>
+      </header>
+      <section className="panel form-row">
+        <label>
+          Intento
+          <input value={attemptId} onChange={(event) => setAttemptId(event.target.value)} />
+        </label>
+        <div className="actions">
+          <button type="button" onClick={() => void ask()}>
+            Pedir informe
+          </button>
+          <button className="button-ghost" type="button" onClick={() => void load()}>
+            Actualizar
+          </button>
+        </div>
+      </section>
       <StatusMessage state={state} message={message} />
       <ReportPanel report={report} />
-      <h2>Historial</h2>
-      <ul>
-        {history.map((attempt) => (
-          <li key={attempt.id}>{attempt.accuracy}%</li>
-        ))}
-      </ul>
-      <ProgressChart points={history} />
+      <section className="panel">
+        <h2>Historial</h2>
+        <ul className="history">
+          {history.map((attempt) => (
+            <li key={attempt.id}>{attempt.accuracy}%</li>
+          ))}
+        </ul>
+        <ProgressChart points={history} />
+      </section>
     </main>
   );
 }
