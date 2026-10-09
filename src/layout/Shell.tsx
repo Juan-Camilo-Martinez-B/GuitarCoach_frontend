@@ -1,4 +1,5 @@
 import { Link, NavLink, Outlet } from "react-router-dom";
+import { ThemeToggle } from "../theme/ThemeToggle";
 
 const LINKS = [
   ["/", "Inicio"],
@@ -26,18 +27,21 @@ export function Shell() {
           </span>
           <span className="brand-name">GuitarCoach AI</span>
         </Link>
-        <nav aria-label="Principal">
-          {LINKS.map(([path, label]) => (
-            <NavLink
-              key={path}
-              to={path}
-              end={path === "/"}
-              className={({ isActive }) => (isActive ? "nav-link is-active" : "nav-link")}
-            >
-              {label}
-            </NavLink>
-          ))}
-        </nav>
+        <div className="topbar-tools">
+          <nav aria-label="Principal">
+            {LINKS.map(([path, label]) => (
+              <NavLink
+                key={path}
+                to={path}
+                end={path === "/"}
+                className={({ isActive }) => (isActive ? "nav-link is-active" : "nav-link")}
+              >
+                {label}
+              </NavLink>
+            ))}
+          </nav>
+          <ThemeToggle />
+        </div>
       </header>
       <div className="neck" aria-hidden="true">
         <span />

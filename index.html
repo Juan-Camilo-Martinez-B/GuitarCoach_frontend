@@ -3,8 +3,23 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#120f0c" />
+    <meta name="theme-color" content="#e6dfd4" />
     <title>GuitarCoach AI</title>
+    <script>
+      (function () {
+        var choice = "light";
+        try {
+          var stored = localStorage.getItem("guitarcoach-theme");
+          if (stored === "light" || stored === "dark" || stored === "system") choice = stored;
+        } catch (error) {}
+        document.documentElement.dataset.theme = choice;
+        var dark =
+          choice === "dark" ||
+          (choice === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        var meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.setAttribute("content", dark ? "#17130f" : "#e6dfd4");
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
