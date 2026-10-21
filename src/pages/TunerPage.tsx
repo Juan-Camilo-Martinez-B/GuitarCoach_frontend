@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { AudioEngine, tunerStatusLabel, type EngineState } from "../audio/engine/AudioEngine";
-import { noteFromFrequency } from "../audio/dsp/noteMath";
 import { needleX } from "../audio/tuner/channel";
+import { startPitchMonitor } from "../audio/tuner/listen";
 import { THEME_EVENT } from "../theme/theme";
 
-function paintNeedle(canvas: HTMLCanvasElement, context: CanvasRenderingContext2D) {
+function paintNeedle(canvas: HTMLCanvasElement, context: CanvasRenderingContext2D, cents: number) {
   const styles = getComputedStyle(document.documentElement);
   const tick = styles.getPropertyValue("--tick").trim();
   const brass = styles.getPropertyValue("--brass").trim();
@@ -19,7 +19,7 @@ function paintNeedle(canvas: HTMLCanvasElement, context: CanvasRenderingContext2
     context.lineTo(x, tall ? canvas.height - 16 : 48);
     context.stroke();
   }
-  const center = needleX(0, canvas.width);
+  const center = needleX(cents, canvas.width);
   context.strokeStyle = brass;
   context.lineWidth = 3;
   context.lineCap = "round";
@@ -29,10 +29,26 @@ function paintNeedle(canvas: HTMLCanvasElement, context: CanvasRenderingContext2
   context.stroke();
 }
 
+function centsLabel(cents: number): string {
+  if (cents > 0) {
+    return `+${cents} cents`;
+  }
+  return `${cents} cents`;
+}
+
 export function TunerPage() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const centsRef = useRef(0);
+  const stopRef = useRef<(() => void) | null>(null);
   const [state, setState] = useState<EngineState>("idle");
   const [note, setNote] = useState("");
+  const [cents, setCents] = useState(0);
+
+  useEffect(() => {
+    return () => {
+      stopRef.current?.();
+    };
+  }, []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -46,7 +62,7 @@ export function TunerPage() {
     let frame = 0;
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const paint = () => {
-      paintNeedle(canvas, context);
+      paintNeedle(canvas, context, centsRef.current);
       if (!reduced) {
         frame = requestAnimationFrame(paint);
       }
@@ -64,17 +80,32 @@ export function TunerPage() {
   }, []);
 
   async function activate() {
+    stopRef.current?.();
+    stopRef.current = null;
+    centsRef.current = 0;
+    setCents(0);
+    setNote("");
     const engine = new AudioEngine({
       request: async () => {
-        await navigator.mediaDevices.getUserMedia({ audio: true });
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        if (!(stream instanceof MediaStream)) {
+          return;
+        }
+        stopRef.current = await startPitchMonitor(stream, (reading) => {
+          if (!reading) {
+            centsRef.current = 0;
+            setCents(0);
+            setNote("");
+            return;
+          }
+          centsRef.current = reading.cents;
+          setCents(reading.cents);
+          setNote(`${reading.name}${reading.octave}`);
+        });
       },
     });
     await engine.start();
     setState(engine.state);
-    if (engine.state === "listening") {
-      const reading = noteFromFrequency(440);
-      setNote(`${reading.name}${reading.octave}`);
-    }
   }
 
   return (
@@ -87,6 +118,7 @@ export function TunerPage() {
       <section className="meter" aria-label="Tablero del afinador">
         <canvas ref={canvasRef} width={640} height={120} aria-label="Aguja del afinador" />
         <p className={note ? "note-readout" : "note-readout is-idle"}>{note || "A la espera"}</p>
+        <p className="cents-readout">{note ? centsLabel(cents) : "Toca una cuerda"}</p>
       </section>
       <div className="actions">
         <button type="button" onClick={() => void activate()}>

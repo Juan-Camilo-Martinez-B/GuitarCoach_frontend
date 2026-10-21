@@ -4,6 +4,45 @@ export interface ChartChord {
   chord: string;
 }
 
+export interface StudyStep {
+  bar: number;
+  beat: number;
+  symbol: string;
+  label: string;
+  detail: string;
+}
+
+export interface SongStudy {
+  summary: string;
+  difficulty: string;
+  chords: StudyStep[];
+  melody: StudyStep[];
+}
+
+export interface LessonView {
+  id: string;
+  title: string;
+  summary: string;
+  points: string[];
+  songTitle: string | null;
+  status: "completed" | "pending";
+  locked: boolean;
+}
+
+export interface Curriculum {
+  needsReview: boolean;
+  review: Array<{ title: string; points: string[] }>;
+  lessons: LessonView[];
+}
+
+export interface CoachPlan {
+  diagnostico: string;
+  ejercicios: string[];
+  planSemanal: string[];
+  consejosTecnica: string[];
+  model: string;
+}
+
 export interface Song {
   id: number;
   title: string;
