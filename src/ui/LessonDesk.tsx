@@ -1,9 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { playMidi, playPattern, playStrum, warmNotes } from "../audio/guitarTone";
 import { localShape, placeNote } from "../chords/shapes";
-import { SONG_GUIDES, strumHits } from "../domain/course";
+import { SONG_GUIDES, STRUM_BASICO } from "../domain/course";
 import { ChordFigure } from "./ChordDiagram";
+import { FretNeck } from "./FretNeck";
 import { SongLesson } from "./SongLesson";
+import { queueStrumMarks } from "./strumMarks";
 import { StrumRail } from "./StrumRail";
 
 const STRINGS = [
@@ -21,13 +23,13 @@ const NOTES = ["Do", "Re", "Mi", "Fa", "Sol", "La", "Si"];
 export function LessonDesk({ lessonId }: { lessonId: string }) {
   const guide = SONG_GUIDES[lessonId];
   if (guide) {
-    return <SongLesson bpm={guide.bpm} slots={guide.slots} />;
+    return <SongLesson bpm={guide.bpm} slots={guide.slots} pattern={guide.pattern} />;
   }
   if (lessonId === "cuerdas") {
     return <StringBoard />;
   }
   if (lessonId === "trastes") {
-    return <FretBoard />;
+    return <FretNeck />;
   }
   if (lessonId === "acorde") {
     return (
@@ -77,31 +79,46 @@ function StringBoard() {
   );
 }
 
-function FretBoard() {
+function StrumLesson() {
+  const chord = localShape("Em");
+  const [arrow, setArrow] = useState(-1);
+  const timers = useRef<number[]>([]);
   useEffect(() => {
-    warmNotes(STRINGS.flatMap((string) => [0, 1, 2, 3].map((fret) => string.midi + fret)));
+    return () => {
+      timers.current.forEach((id) => window.clearTimeout(id));
+    };
   }, []);
+  if (!chord) {
+    return null;
+  }
   return (
-    <div className="fret-board" role="group" aria-label="Trastes desde la cejuela">
-      {STRINGS.map((string) => (
-        <div key={string.number} className="fret-row">
-          <span>{string.number}</span>
-          {[0, 1, 2, 3].map((fret) => (
-            <button
-              key={fret}
-              type="button"
-              className="fret-cell"
-              onClick={() => playMidi(string.midi + fret)}
-            >
-              {fret === 0 ? "aire" : fret}
-            </button>
-          ))}
-        </div>
-      ))}
+    <div className="song-lesson">
+      <ChordFigure symbol="Em" />
+      <StrumRail
+        pattern={STRUM_BASICO}
+        active={arrow}
+        onStrum={(direction, index) => {
+          setArrow(index);
+          playStrum(chord, direction);
+        }}
+      />
+      <p className="hint">{STRUM_BASICO.hint}</p>
+      <button
+        type="button"
+        onClick={() => {
+          timers.current.forEach((id) => window.clearTimeout(id));
+          timers.current = queueStrumMarks(
+            playPattern(chord, 60, STRUM_BASICO),
+            (hit) => setArrow(hit.hit),
+            () => setArrow(-1),
+          );
+        }}
+      >
+        Escuchar el rasgueo
+      </button>
     </div>
   );
 }
-
 function NoteKeys() {
   useEffect(() => {
     warmNotes(
@@ -131,37 +148,6 @@ function NoteKeys() {
           </button>
         );
       })}
-    </div>
-  );
-}
-
-function StrumLesson() {
-  const chord = localShape("Em");
-  const [arrow, setArrow] = useState(-1);
-  if (!chord) {
-    return null;
-  }
-  return (
-    <div className="song-lesson">
-      <ChordFigure symbol="Em" />
-      <StrumRail
-        active={arrow}
-        onStrum={(direction, index) => {
-          setArrow(index);
-          playStrum(chord, direction);
-        }}
-      />
-      <button
-        type="button"
-        onClick={() => {
-          playPattern(chord, 72);
-          strumHits([4], 72).forEach((hit) => {
-            window.setTimeout(() => setArrow(hit.hit), hit.at * 1000);
-          });
-        }}
-      >
-        Escuchar el rasgueo
-      </button>
     </div>
   );
 }

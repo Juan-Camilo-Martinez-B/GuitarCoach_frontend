@@ -1,7 +1,7 @@
 import type { ChordShape } from "../chords/shapes";
-import { STRUM_PATTERN, strumHits, type StrumHit } from "../domain/course";
+import { STRUM_LAMENTO, strumHits, type StrumHit, type StrumPattern } from "../domain/course";
 
-type Strum = (typeof STRUM_PATTERN)[number];
+type Strum = StrumPattern["directions"][number];
 
 const SAMPLE_ROOT =
   "https://cdn.jsdelivr.net/gh/gleitz/midi-js-soundfonts@gh-pages/FluidR3_GM/acoustic_guitar_steel-mp3";
@@ -145,24 +145,31 @@ export function playStrum(chord: ChordShape, direction: Strum): void {
   playShape(chord, direction, 0.045);
 }
 
-export function playPattern(chord: ChordShape, bpm: number): void {
+export function playPattern(
+  chord: ChordShape,
+  bpm: number,
+  pattern: StrumPattern = STRUM_LAMENTO,
+): StrumHit[] {
   stopGuitar();
-  for (const hit of strumHits([4], bpm)) {
-    playShape(chord, STRUM_PATTERN[hit.hit], 0.018, hit.at, hit.hold);
+  const hits = strumHits([4], bpm, pattern);
+  for (const hit of hits) {
+    playShape(chord, pattern.directions[hit.hit], 0.018, hit.at, hit.hold);
   }
+  return hits;
 }
 
 export function playSlots(
   chords: Array<ChordShape | null>,
   lengths: number[],
   bpm: number,
+  pattern: StrumPattern = STRUM_LAMENTO,
 ): StrumHit[] {
   stopGuitar();
-  const hits = strumHits(lengths, bpm);
+  const hits = strumHits(lengths, bpm, pattern);
   for (const hit of hits) {
     const chord = chords[hit.slot];
     if (chord) {
-      playShape(chord, STRUM_PATTERN[hit.hit], 0.018, hit.at, hit.hold);
+      playShape(chord, pattern.directions[hit.hit], 0.018, hit.at, hit.hold);
     }
   }
   return hits;

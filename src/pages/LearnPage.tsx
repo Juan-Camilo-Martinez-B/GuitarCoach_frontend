@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type CSSProperties } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ApiClient, ApiError } from "../api/client";
 import { previewCurriculum } from "../domain/course";
@@ -73,7 +73,7 @@ export function LearnPage() {
     }
   }
 
-  async function practice(title: string, mode: "acordes" | "notas") {
+  async function practice(title: string) {
     setState("loading");
     try {
       const client = new ApiClient(apiUrl, fetch, token);
@@ -88,7 +88,7 @@ export function LearnPage() {
       } catch {
         setStudy(null);
       }
-      setTeachingMode(mode);
+      setTeachingMode("acordes");
       setState("idle");
       navigate("/practica");
     } catch (error) {
@@ -99,6 +99,14 @@ export function LearnPage() {
 
   const lessons = course.lessons ?? [];
   const current = lessons.find((lesson) => lesson.id === openId) ?? lessons[0] ?? null;
+  const currentIndex = Math.max(
+    0,
+    lessons.findIndex((lesson) => lesson.id === current?.id),
+  );
+  const done = lessons.filter((lesson) => lesson.status === "completed").length;
+  const progress = {
+    "--done": lessons.length === 0 ? 0 : done / lessons.length,
+  } as CSSProperties;
 
   return (
     <main className="page">
@@ -135,61 +143,87 @@ export function LearnPage() {
           </button>
         </section>
       ) : null}
-      <ol className="lessons">
-        {lessons.map((lesson, index) => (
-          <li key={lesson.id}>
-            <button
-              type="button"
-              className={lesson.id === current?.id ? "is-current" : undefined}
-              disabled={lesson.locked}
-              onClick={() => setOpenId(lesson.id)}
-            >
-              {index + 1}. {lesson.title}
-              {lesson.status === "completed" ? " · listo" : ""}
-              {lesson.locked ? " · bloqueado" : ""}
-            </button>
-          </li>
-        ))}
-      </ol>
-      {current ? (
-        <section className="panel">
-          <h2>{current.title}</h2>
-          <p>{current.summary}</p>
-          <LessonDesk lessonId={current.id} />
-          <ul>
-            {(current.points ?? []).map((point) => (
-              <li key={point}>{point}</li>
+      <div className="studio">
+        <aside className="course-path">
+          <div className="course-progress" style={progress}>
+            <p>
+              <span>Recorrido</span>
+              <strong>
+                {done} de {lessons.length}
+              </strong>
+            </p>
+            <div className="course-meter" aria-hidden="true">
+              <span />
+            </div>
+          </div>
+          <ol className="lessons">
+            {lessons.map((lesson, index) => (
+              <li key={lesson.id}>
+                <button
+                  type="button"
+                  className={
+                    lesson.id === current?.id
+                      ? "is-current"
+                      : lesson.status === "completed"
+                        ? "is-done"
+                        : undefined
+                  }
+                  aria-current={lesson.id === current?.id ? "step" : undefined}
+                  disabled={lesson.locked}
+                  onClick={() => setOpenId(lesson.id)}
+                >
+                  <span className="lesson-index">{index + 1}</span>
+                  <span className="lesson-copy">
+                    <span className="lesson-title">{lesson.title}</span>
+                    <span className="lesson-state">
+                      {lesson.status === "completed"
+                        ? "Listo"
+                        : lesson.locked
+                          ? "Bloqueado"
+                          : "Por ver"}
+                    </span>
+                  </span>
+                </button>
+              </li>
             ))}
-          </ul>
-          <div className="actions">
-            <button
-              type="button"
-              disabled={current.locked || current.status === "completed" || course.needsReview}
-              onClick={() => void complete(current.id)}
-            >
-              {current.status === "completed" ? "Módulo guardado" : "Marcar como visto"}
-            </button>
-            {current.songTitle ? (
-              <>
+          </ol>
+        </aside>
+        {current ? (
+          <section className="panel lesson-stage">
+            <header className="lesson-head">
+              <p className="eyebrow">Módulo {String(currentIndex + 1).padStart(2, "0")}</p>
+              <h2>{current.title}</h2>
+              <p>{current.summary}</p>
+            </header>
+            <div className="lesson-desk">
+              <LessonDesk lessonId={current.id} />
+            </div>
+            <ul className="lesson-points">
+              {(current.points ?? []).map((point) => (
+                <li key={point}>{point}</li>
+              ))}
+            </ul>
+            <div className="actions">
+              <button
+                type="button"
+                disabled={current.locked || current.status === "completed" || course.needsReview}
+                onClick={() => void complete(current.id)}
+              >
+                {current.status === "completed" ? "Módulo guardado" : "Marcar como visto"}
+              </button>
+              {current.songTitle ? (
                 <button
                   type="button"
                   className="button-ghost"
-                  onClick={() => void practice(current.songTitle ?? "", "acordes")}
+                  onClick={() => void practice(current.songTitle ?? "")}
                 >
                   Practicar acordes
                 </button>
-                <button
-                  type="button"
-                  className="button-ghost"
-                  onClick={() => void practice(current.songTitle ?? "", "notas")}
-                >
-                  Practicar notas
-                </button>
-              </>
-            ) : null}
-          </div>
-        </section>
-      ) : null}
+              ) : null}
+            </div>
+          </section>
+        ) : null}
+      </div>
     </main>
   );
 }

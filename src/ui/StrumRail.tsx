@@ -1,15 +1,17 @@
-import { STRUM_PATTERN } from "../domain/course";
+import type { StrumPattern } from "../domain/course";
 
 export function StrumRail({
   active,
+  pattern,
   onStrum,
 }: {
   active: number;
-  onStrum: (direction: (typeof STRUM_PATTERN)[number], index: number) => void;
+  pattern: StrumPattern;
+  onStrum: (direction: StrumPattern["directions"][number], index: number) => void;
 }) {
   return (
     <div className="strum-rail" role="group" aria-label="Rasgueo abajo y arriba">
-      {STRUM_PATTERN.map((direction, index) => (
+      {pattern.directions.map((direction, index) => (
         <button
           key={`${direction}-${index}`}
           type="button"

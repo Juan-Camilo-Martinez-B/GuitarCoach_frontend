@@ -31,12 +31,6 @@ const OPTIONS = [
     title: "Informe",
     text: "Elige canción completa, quiz o progresión según lo que ya practicaste.",
   },
-  {
-    href: "/entrar",
-    index: "06",
-    title: "Iniciar sesión",
-    text: "Entra con tu cuenta o créala. Desde ahí se guarda el curso.",
-  },
 ] as const;
 
 export function HomePage() {

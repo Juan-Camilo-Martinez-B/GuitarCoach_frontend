@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { ApiClient, ApiError } from "../api/client";
 import { pollJob } from "../api/songs";
 import type { Song, SongStudy } from "../domain/types";
-import { useSession, type TeachingMode } from "../store/session";
+import { useSession } from "../store/session";
 import { StatusMessage } from "../ui/StatusMessage";
 
 const apiUrl = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
@@ -61,11 +61,11 @@ export function LibraryPage() {
     }
   }
 
-  function teach(mode: TeachingMode) {
+  function teach() {
     if (!selected) {
       return;
     }
-    setTeachingMode(mode);
+    setTeachingMode("acordes");
     navigate("/practica");
   }
 
@@ -118,9 +118,7 @@ export function LibraryPage() {
       <header className="page-head">
         <p className="eyebrow">Cancionero</p>
         <h1>Biblioteca</h1>
-        <p className="lead">
-          Sube una carta en texto o MusicXML. El análisis arma acordes y notas.
-        </p>
+        <p className="lead">Sube una carta en texto o MusicXML. El análisis arma la progresión.</p>
       </header>
       <section className="panel guide">
         <h2>Qué archivo subir</h2>
@@ -131,7 +129,7 @@ export function LibraryPage() {
           </li>
           <li>
             <strong>Texto</strong> (.txt) con líneas title, artist, bpm y key, y los acordes entre
-            corchetes. Una línea melody: E D C G agrega las notas del canto.
+            corchetes.
           </li>
           <li>
             <strong>MusicXML</strong> (.musicxml, .xml) sin comprimir. En MuseScore: Archivo,
@@ -180,11 +178,8 @@ export function LibraryPage() {
           <p>{study.summary}</p>
           <p>Dificultad: {study.difficulty}</p>
           <div className="actions">
-            <button type="button" onClick={() => teach("acordes")}>
-              Enseñar con acordes y rasgueo
-            </button>
-            <button className="button-ghost" type="button" onClick={() => teach("notas")}>
-              Enseñar con notas del canto
+            <button type="button" onClick={teach}>
+              Practicar acordes
             </button>
           </div>
         </section>

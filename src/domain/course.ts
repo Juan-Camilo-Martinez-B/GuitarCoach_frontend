@@ -68,9 +68,9 @@ const OUTLINE: Array<Omit<LessonView, "status" | "locked">> = [
     summary: "La mano marca el pulso antes de acelerar.",
     points: [
       "Abajo va de la cuerda 6 hacia la 1. Arriba vuelve.",
-      "El patrón de la escuela es abajo, abajo, arriba, arriba, abajo, arriba.",
+      "El básico son cuatro golpes hacia abajo, todos del mismo tiempo.",
       "Se mueve la muñeca. El antebrazo casi quieto.",
-      "Primero lento y parejo. La velocidad llega después del pulso.",
+      "Primero lento, a 60 pulsos. Cada ↓ dura un tiempo.",
     ],
     songTitle: null,
   },
@@ -80,8 +80,8 @@ const OUTLINE: Array<Omit<LessonView, "status" | "locked">> = [
     summary: "Cuatro acordes mayores y menores, sin prisa.",
     points: [
       "La carta es Sol, Re, Mim y Do, a 72 BPM.",
-      "En acordes, rasguea cada forma cuando cambia el cuadro.",
-      "En notas, canta la fundamental: Sol, Re, Mi, Do.",
+      "El rasgueo alterna ↓ y ↑: el ↓ dura un tiempo y medio, el ↑ medio tiempo.",
+      "Primero el acorde solo, después con el rasgueo y al final la progresión.",
     ],
     songTitle: "Cambios abiertos",
   },
@@ -91,8 +91,8 @@ const OUTLINE: Array<Omit<LessonView, "status" | "locked">> = [
     summary: "Una vuelta corta en Lam para afirmar el cambio.",
     points: [
       "La carta es Lam, Rem, Mi y Lam, a 66 BPM.",
-      "Deja sonar el acorde un compás entero antes de moverte.",
-      "En notas, la línea es La, Re, Mi, La.",
+      "El primer ↓ dura dos tiempos. Después un ↓ y un ↑ de un tiempo.",
+      "Practica cada acorde solo y luego la vuelta completa.",
     ],
     songTitle: "Ronda de menores",
   },
@@ -104,11 +104,54 @@ const OUTLINE: Array<Omit<LessonView, "status" | "locked">> = [
       "Va a 124 BPM, el tempo de la canción, en compás de cuatro.",
       "La armonía es Mim, Sim7, Lam y, en el último compás, Mim y Si7. Sim7 va sin cejilla.",
       "El primer rasgueo dura un tiempo; los cinco siguientes, medio tiempo.",
-      "No incluye la letra. En notas: Mi, Si, La, Mi, Si.",
+      "No incluye la letra. Practica Mim, Sim7, Lam, Mim y Si7.",
     ],
     songTitle: "Lamento boliviano",
   },
 ];
+
+export const STRUM_LAMENTO = {
+  directions: ["abajo", "abajo", "arriba", "arriba", "abajo", "arriba"],
+  beats: [1, 0.5, 0.5, 0.5, 0.5, 0.5],
+  hint: "El primer ↓ dura un tiempo. Los otros cinco duran medio tiempo.",
+} as const;
+
+export const STRUM_BASICO = {
+  directions: ["abajo", "abajo", "abajo", "abajo"],
+  beats: [1, 1, 1, 1],
+  hint: "Cuatro ↓ iguales. Cada uno dura un tiempo.",
+} as const;
+
+export const STRUM_ABIERTOS = {
+  directions: ["abajo", "arriba", "abajo", "arriba"],
+  beats: [1.5, 0.5, 1.5, 0.5],
+  hint: "El ↓ dura un tiempo y medio. El ↑ dura medio tiempo. Se repite.",
+} as const;
+
+export const STRUM_MENORES = {
+  directions: ["abajo", "abajo", "arriba"],
+  beats: [2, 1, 1],
+  hint: "El primer ↓ dura dos tiempos. Los dos siguientes duran un tiempo.",
+} as const;
+
+export type StrumPattern =
+  typeof STRUM_LAMENTO | typeof STRUM_BASICO | typeof STRUM_ABIERTOS | typeof STRUM_MENORES;
+
+export const STRUM_PATTERN = STRUM_LAMENTO.directions;
+export const STRUM_BEATS = STRUM_LAMENTO.beats;
+
+export function patternForTitle(title: string): StrumPattern {
+  if (title === "Cambios abiertos") {
+    return STRUM_ABIERTOS;
+  }
+  if (title === "Ronda de menores") {
+    return STRUM_MENORES;
+  }
+  if (title === "Lamento boliviano") {
+    return STRUM_LAMENTO;
+  }
+  return STRUM_BASICO;
+}
 
 export interface SongSlot {
   symbol: string;
@@ -119,11 +162,13 @@ export interface SongSlot {
 export interface SongGuide {
   bpm: number;
   slots: SongSlot[];
+  pattern: StrumPattern;
 }
 
 export const SONG_GUIDES: Record<string, SongGuide> = {
   "cancion-abiertos": {
     bpm: 72,
+    pattern: STRUM_ABIERTOS,
     slots: [
       { symbol: "G", beats: 4, note: "G" },
       { symbol: "D", beats: 4, note: "D" },
@@ -133,6 +178,7 @@ export const SONG_GUIDES: Record<string, SongGuide> = {
   },
   "cancion-menores": {
     bpm: 66,
+    pattern: STRUM_MENORES,
     slots: [
       { symbol: "Am", beats: 4, note: "A" },
       { symbol: "Dm", beats: 4, note: "D" },
@@ -142,6 +188,7 @@ export const SONG_GUIDES: Record<string, SongGuide> = {
   },
   "cancion-lamento": {
     bpm: 124,
+    pattern: STRUM_LAMENTO,
     slots: [
       { symbol: "Em", beats: 4, note: "E" },
       { symbol: "Bm7", beats: 4, note: "B" },
@@ -152,14 +199,6 @@ export const SONG_GUIDES: Record<string, SongGuide> = {
   },
 };
 
-export const STRUM_PATTERN = ["abajo", "abajo", "arriba", "arriba", "abajo", "arriba"] as const;
-
-/**
- * Duración de cada golpe, en tiempos de negra.
- * El primero dura un tiempo; los cinco siguientes, medio. Cierra el compás un silencio de medio tiempo.
- */
-export const STRUM_BEATS = [1, 0.5, 0.5, 0.5, 0.5, 0.5] as const;
-
 export interface StrumHit {
   at: number;
   slot: number;
@@ -167,7 +206,11 @@ export interface StrumHit {
   hold: number;
 }
 
-export function strumHits(lengths: number[], bpm: number): StrumHit[] {
+export function strumHits(
+  lengths: number[],
+  bpm: number,
+  pattern: StrumPattern = STRUM_LAMENTO,
+): StrumHit[] {
   const quarter = 60 / bpm;
   const hits: StrumHit[] = [];
   let origin = 0;
@@ -177,7 +220,7 @@ export function strumHits(lengths: number[], bpm: number): StrumHit[] {
     const lastBar = Math.floor((end - 1e-9) / 4);
     for (let bar = firstBar; bar <= lastBar; bar += 1) {
       let cursor = bar * 4;
-      STRUM_BEATS.forEach((beats, hit) => {
+      pattern.beats.forEach((beats, hit) => {
         if (cursor >= origin - 1e-9 && cursor < end - 1e-9) {
           hits.push({ at: cursor * quarter, slot, hit, hold: beats * quarter });
         }
