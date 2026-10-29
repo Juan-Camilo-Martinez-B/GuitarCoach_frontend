@@ -1,5 +1,6 @@
 import { Component, useEffect, useState, type ReactNode } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
+import { useGuitarLoading } from "../audio/guitar/useGuitarLoading";
 import { useSession } from "../store/session";
 import { ThemeToggle } from "../theme/ThemeToggle";
 
@@ -39,6 +40,7 @@ export function Shell() {
   const token = useSession((state) => state.token);
   const setToken = useSession((state) => state.setToken);
   const [menuOpen, setMenuOpen] = useState(false);
+  const guitarLoading = useGuitarLoading();
   const sessionHere = location.pathname === "/entrar" || location.pathname === "/registro";
 
   useEffect(() => {
@@ -111,6 +113,11 @@ export function Shell() {
           <Outlet />
         </StageBoundary>
       </div>
+      {guitarLoading ? (
+        <p className="guitar-loading" role="status">
+          Cargando la guitarra…
+        </p>
+      ) : null}
       <p className="sample-credit">
         Guitarra de acero grabada: FluidR3 GM, Frank Wen, CC BY 3.0, a través de midi-js-soundfonts.
       </p>

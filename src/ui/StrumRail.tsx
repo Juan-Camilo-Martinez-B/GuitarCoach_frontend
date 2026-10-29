@@ -1,4 +1,10 @@
-import type { StrumPattern } from "../domain/course";
+import type { StrumDirection, StrumPattern } from "../domain/course";
+
+export const STRUM_GLYPH: Record<StrumDirection, string> = {
+  abajo: "↓",
+  arriba: "↑",
+  apagado: "×",
+};
 
 export function StrumRail({
   active,
@@ -7,7 +13,7 @@ export function StrumRail({
 }: {
   active: number;
   pattern: StrumPattern;
-  onStrum: (direction: StrumPattern["directions"][number], index: number) => void;
+  onStrum: (direction: StrumDirection, index: number) => void;
 }) {
   return (
     <div className="strum-rail" role="group" aria-label="Rasgueo abajo y arriba">
@@ -19,7 +25,7 @@ export function StrumRail({
           aria-pressed={index === active}
           onClick={() => onStrum(direction, index)}
         >
-          <span aria-hidden="true">{direction === "abajo" ? "↓" : "↑"}</span>
+          <span aria-hidden="true">{STRUM_GLYPH[direction]}</span>
           <small>{direction}</small>
         </button>
       ))}

@@ -434,6 +434,21 @@ h2 {
   box-shadow: inset 0 0 0 1px var(--line);
 }
 
+.guitar-loading {
+  position: fixed;
+  right: 1.25rem;
+  bottom: 1.25rem;
+  z-index: 20;
+  margin: 0;
+  padding: 0.5rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--pill-bg);
+  color: var(--ink);
+  font-size: 0.85rem;
+  box-shadow: 0 6px 18px var(--shadow);
+}
+
 .sample-credit {
   margin: 0;
   padding: 0.35rem 1.5rem 1.25rem;

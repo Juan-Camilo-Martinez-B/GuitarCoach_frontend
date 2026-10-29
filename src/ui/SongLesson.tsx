@@ -8,7 +8,7 @@ import {
   warmShape,
 } from "../audio/guitarTone";
 import { localShape, shapeFor, type ChordShape } from "../chords/shapes";
-import { type SongSlot, type StrumPattern } from "../domain/course";
+import { type SongSlot, type StrumHit, type StrumPattern } from "../domain/course";
 import { ChordDiagram } from "./ChordDiagram";
 import { queueStrumMarks } from "./strumMarks";
 import { StrumRail } from "./StrumRail";
@@ -55,22 +55,28 @@ export function SongLesson({
     }
   }, [shapes]);
 
+  function follow(hits: StrumHit[], mark: (hit: StrumHit) => void) {
+    // Sin golpes significa que otra reproducción reemplazó a esta.
+    if (hits.length === 0) {
+      return;
+    }
+    timers.current.forEach((id) => window.clearTimeout(id));
+    timers.current = queueStrumMarks(hits, mark, () => setArrow(-1));
+  }
+
   function hearSong() {
     timers.current.forEach((id) => window.clearTimeout(id));
     timers.current = [];
-    const hits = playSlots(
+    void playSlots(
       shapes,
       slots.map((slot) => slot.beats),
       bpm,
       pattern,
-    );
-    timers.current = queueStrumMarks(
-      hits,
-      (hit) => {
+    ).then((hits) =>
+      follow(hits, (hit) => {
         setIndex(hit.slot);
         setArrow(hit.hit);
-      },
-      () => setArrow(-1),
+      }),
     );
   }
 
@@ -118,11 +124,8 @@ export function SongLesson({
             if (!shape) {
               return;
             }
-            timers.current.forEach((id) => window.clearTimeout(id));
-            timers.current = queueStrumMarks(
-              playPattern(shape, bpm, pattern),
-              (hit) => setArrow(hit.hit),
-              () => setArrow(-1),
+            void playPattern(shape, bpm, pattern).then((hits) =>
+              follow(hits, (hit) => setArrow(hit.hit)),
             );
           }}
         >

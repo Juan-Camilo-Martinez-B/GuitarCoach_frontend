@@ -13,12 +13,13 @@ import { detectedChord } from "../game/heardChord";
 import { useSession } from "../store/session";
 import { ChordFigure } from "../ui/ChordDiagram";
 import { queueStrumMarks } from "../ui/strumMarks";
-import { StrumRail } from "../ui/StrumRail";
+import { STRUM_GLYPH, StrumRail } from "../ui/StrumRail";
 
 const apiUrl = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 
 type Drill = "acorde" | "rasgueo" | "progresion";
 type Mark = "bien" | "no";
+type StopListening = () => void | Promise<void>;
 
 function chordAt(bar: number, beat: number, bpm: number): number {
   return ((bar - 1) * 4 + (beat - 1)) * (60000 / bpm);
@@ -46,7 +47,7 @@ export function PracticePage() {
   const [marks, setMarks] = useState<Record<number, Mark>>({});
   const [verdict, setVerdict] = useState("Escuchando. Toca el acorde.");
   const [verdictKind, setVerdictKind] = useState<"espera" | Mark>("espera");
-  const stopRef = useRef<(() => Promise<void>) | null>(null);
+  const stopRef = useRef<StopListening | null>(null);
   const heardRef = useRef<string | null>(null);
   const hitsRef = useRef<Map<number, { detected: string | null; deltaMs: number }>>(new Map());
   const startedRef = useRef(0);
@@ -77,7 +78,7 @@ export function PracticePage() {
       return;
     }
     let closed = false;
-    let localStop: (() => Promise<void>) | null = null;
+    let localStop: StopListening | null = null;
     const withStrum = drill === "rasgueo";
     stableRef.current = { note: "", count: 0 };
 
@@ -312,6 +313,8 @@ export function PracticePage() {
   );
   const shown = phase === "playing" && active >= 0 ? active : picked;
   const step = steps[shown] ?? steps[0];
+  // Las funciones declaradas no heredan el descarte de song nulo de más arriba.
+  const bpm = song.bpm;
 
   function hearChart() {
     listenTicket.current += 1;
@@ -319,19 +322,23 @@ export function PracticePage() {
     listenRef.current.forEach((id) => window.clearTimeout(id));
     listenRef.current = [];
     const lengths = steps.map((_, position) => beatsOf(steps, position));
-    void Promise.all(steps.map((item) => shapeFor(item.symbol))).then((found) => {
-      if (ticket !== listenTicket.current) {
-        return;
-      }
-      listenRef.current = queueStrumMarks(
-        playSlots(found, lengths, song.bpm, pattern),
-        (hit) => {
-          setPicked(hit.slot);
-          setArrow(hit.hit);
-        },
-        () => setArrow(-1),
-      );
-    });
+    void Promise.all(steps.map((item) => shapeFor(item.symbol)))
+      .then((found) =>
+        ticket === listenTicket.current ? playSlots(found, lengths, bpm, pattern) : [],
+      )
+      .then((hits) => {
+        if (ticket !== listenTicket.current || hits.length === 0) {
+          return;
+        }
+        listenRef.current = queueStrumMarks(
+          hits,
+          (hit) => {
+            setPicked(hit.slot);
+            setArrow(hit.hit);
+          },
+          () => setArrow(-1),
+        );
+      });
   }
 
   return (
@@ -372,9 +379,7 @@ export function PracticePage() {
                   ? "Bien"
                   : marks[index] === "no"
                     ? "No"
-                    : pattern.directions[index % pattern.directions.length] === "abajo"
-                      ? "↓"
-                      : "↑"}
+                    : STRUM_GLYPH[pattern.directions[index % pattern.directions.length]]}
               </small>
             </button>
           </li>
@@ -433,16 +438,22 @@ export function PracticePage() {
                   const ticket = listenTicket.current;
                   listenRef.current.forEach((id) => window.clearTimeout(id));
                   listenRef.current = [];
-                  void shapeFor(step.symbol).then((found) => {
-                    if (!found || ticket !== listenTicket.current) {
-                      return;
-                    }
-                    listenRef.current = queueStrumMarks(
-                      playPattern(found, song.bpm, pattern),
-                      (hit) => setArrow(hit.hit),
-                      () => setArrow(-1),
-                    );
-                  });
+                  void shapeFor(step.symbol)
+                    .then((found) =>
+                      found && ticket === listenTicket.current
+                        ? playPattern(found, song.bpm, pattern)
+                        : [],
+                    )
+                    .then((hits) => {
+                      if (ticket !== listenTicket.current || hits.length === 0) {
+                        return;
+                      }
+                      listenRef.current = queueStrumMarks(
+                        hits,
+                        (hit) => setArrow(hit.hit),
+                        () => setArrow(-1),
+                      );
+                    });
                 }}
               >
                 Escuchar el rasgueo
