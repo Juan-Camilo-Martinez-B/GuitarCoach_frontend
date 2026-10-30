@@ -61,7 +61,8 @@ export function PracticePage() {
   drillRef.current = drill;
 
   const steps = song ? practiceSteps(song, study) : [];
-  const pattern = patternForTitle(song?.title ?? "");
+  const practicePattern = useSession((state) => state.practicePattern);
+  const pattern = practicePattern ?? patternForTitle(song?.title ?? "");
   symbolRef.current = steps[picked]?.symbol ?? steps[0]?.symbol ?? "";
 
   useEffect(() => {

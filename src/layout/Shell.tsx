@@ -10,6 +10,7 @@ const LINKS = [
   ["/aprendizaje", "Aprendizaje"],
   ["/practica", "Práctica"],
   ["/biblioteca", "Biblioteca"],
+  ["/canciones", "Mis canciones"],
   ["/informe", "Informe"],
 ] as const;
 

@@ -6,6 +6,13 @@ import type {
   Song,
   SongStudy,
 } from "../domain/types";
+import type { GuideRecord, GuideStatus, GuideSummary, SongGuide } from "../domain/guide";
+import {
+  guideFromPayload,
+  guideSummaryFromPayload,
+  type GuidePayload,
+  type GuideSummaryPayload,
+} from "./guides";
 import { songFromPayload, type SongPayload } from "./songs";
 
 export class ApiError extends Error {
@@ -195,28 +202,6 @@ export class ApiClient {
     return (await response.json()) as SongStudy;
   }
 
-  async uploadSong(file: File): Promise<{ song: Song; study: SongStudy }> {
-    const headers = new Headers();
-    if (this.token) {
-      headers.set("Authorization", `Bearer ${this.token}`);
-    }
-    const body = new FormData();
-    body.append("file", file);
-    const response = await this.fetchImpl(this.url("/songs/upload"), {
-      method: "POST",
-      headers,
-      body,
-    });
-    if (!response.ok) {
-      throw await this.readError(response);
-    }
-    const payload = (await response.json()) as {
-      song: SongPayload;
-      study: SongStudy;
-    };
-    return { song: songFromPayload(payload.song), study: payload.study };
-  }
-
   async progress(): Promise<AttemptSummary[]> {
     const response = await this.request("/me/progress");
     const body = (await response.json()) as Array<{
@@ -233,6 +218,59 @@ export class ApiClient {
       avgDeltaMs: point.avg_delta_ms,
       createdAt: point.created_at,
     }));
+  }
+
+  async pasteGuide(input: {
+    title: string;
+    artist: string;
+    text: string;
+    bpm?: number;
+    time?: string;
+    capo?: number;
+    strum?: string;
+  }): Promise<GuideRecord> {
+    const response = await this.request("/guides/paste", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+    return guideFromPayload((await response.json()) as GuidePayload);
+  }
+
+  async uploadGuide(file: File): Promise<GuideRecord> {
+    const headers = new Headers();
+    if (this.token) {
+      headers.set("Authorization", `Bearer ${this.token}`);
+    }
+    const body = new FormData();
+    body.append("file", file);
+    const response = await this.fetchImpl(this.url("/guides/upload"), {
+      method: "POST",
+      headers,
+      body,
+    });
+    if (!response.ok) {
+      throw await this.readError(response);
+    }
+    return guideFromPayload((await response.json()) as GuidePayload);
+  }
+
+  async listGuides(): Promise<GuideSummary[]> {
+    const response = await this.request("/guides");
+    const body = (await response.json()) as GuideSummaryPayload[];
+    return body.map(guideSummaryFromPayload);
+  }
+
+  async guide(id: string): Promise<GuideRecord> {
+    const response = await this.request(`/guides/${encodeURIComponent(id)}`);
+    return guideFromPayload((await response.json()) as GuidePayload);
+  }
+
+  async updateGuide(id: string, guide: SongGuide, status: GuideStatus): Promise<GuideRecord> {
+    const response = await this.request(`/guides/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      body: JSON.stringify({ status, guide }),
+    });
+    return guideFromPayload((await response.json()) as GuidePayload);
   }
 
   private url(path: string): string {
@@ -256,9 +294,12 @@ export class ApiClient {
     const raw = await response.text();
     let message = `La API respondió ${response.status}.`;
     try {
-      const body = JSON.parse(raw) as { message?: string };
+      const body = JSON.parse(raw) as { message?: string; detail?: Array<{ msg?: string }> };
       if (body.message) {
         message = body.message;
+      } else if (Array.isArray(body.detail) && body.detail[0]?.msg) {
+        // Validación de FastAPI: se muestra la primera regla incumplida.
+        message = `Dato inválido: ${body.detail[0].msg}`;
       }
     } catch {
       if (raw.trim()) {

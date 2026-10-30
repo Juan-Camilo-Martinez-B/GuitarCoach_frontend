@@ -43,6 +43,22 @@ Los acordes, rasgueos y notas se tocan con muestras reales de guitarra de acero 
 
 `src/audio/guitarTone.ts` es la fachada que usan las pantallas. `playPattern` y `playSlots` devuelven los golpes ya alineados con el reloj de audio, para que las flechas del rasgueo se enciendan junto con el sonido.
 
+## Mis canciones: guías de canciones elegidas
+
+En `/canciones` el usuario crea una guía de estudio de cualquier canción:
+
+- **Pegar acordes**: copia los acordes de un cancionero (LaCuerda, Cifra Club, Ultimate Guitar) y los pega con título, artista, tempo, compás, cejilla y rasgueo. La API ubica los acordes en compases y secciones y descarta la letra.
+- **Subir archivo**: ChordPro o MusicXML sin comprimir.
+
+`/canciones/:id` abre la guía:
+
+- Reproductor por sección o de la canción entera, con velocidad del 50 al 100 %, cuenta de entrada, metrónomo, repetición y melodía si el archivo la trae. Cada sección suena con su propio rasgueo.
+- La carta resalta el compás que suena, y el panel muestra el acorde actual y el siguiente.
+- **Corregir la guía**: cada sección se edita como `| G | D . C . |` (un tramo por compás, el punto prolonga el acorde) con un rasgueo `D-DU-UDU`. Al guardar se puede marcar como revisada.
+- **Practicar con el micrófono**: abre la práctica con la canción de la guía y su rasgueo; el intento queda para el informe.
+
+La lógica pura vive en `src/domain/guide.ts` (golpes por sección, notación de compases y rasgueo, edición de secciones) y el audio en `playGuide` de `src/audio/guitarTone.ts`. El clic del metrónomo (`src/audio/guitar/metronome.ts`) no pasa por la reverberación, para sonar seco.
+
 ## Despliegue
 
 La imagen escucha en el puerto 8080 y nginx envía COOP y COEP. El despliegue a Cloud Run es el workflow manual `desplegar`. La versión 1.0.0 está en `CHANGELOG.md`.

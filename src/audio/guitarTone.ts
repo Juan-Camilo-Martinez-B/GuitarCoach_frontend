@@ -6,6 +6,8 @@ import {
   type StrumHit,
   type StrumPattern,
 } from "../domain/course";
+import type { GuideHit, GuideNote } from "../domain/guide";
+import { Metronome } from "./guitar/metronome";
 import { createOutputChain } from "./guitar/outputChain";
 import { jitter, seededRandom, type Random } from "./guitar/random";
 import { SampleBank, type GuitarSample } from "./guitar/sampleBank";
@@ -29,6 +31,9 @@ const DETUNE_CENTS = 3;
 interface Engine {
   context: AudioContext;
   voices: StringVoices;
+  /** Segunda guitarra para la melodía: así no apaga las cuerdas del acompañamiento. */
+  lead: StringVoices;
+  metronome: Metronome;
 }
 
 const bank = new SampleBank(SAMPLE_ROOTS);
@@ -39,7 +44,13 @@ let seed = 1;
 function audioEngine(): Engine {
   if (!engine) {
     const context = new AudioContext({ latencyHint: "interactive" });
-    engine = { context, voices: new StringVoices(context, createOutputChain(context)) };
+    const output = createOutputChain(context);
+    engine = {
+      context,
+      voices: new StringVoices(context, output),
+      lead: new StringVoices(context, output),
+      metronome: new Metronome(context, context.destination),
+    };
   }
   void engine.context.resume();
   return engine;
@@ -60,6 +71,10 @@ function mutedStrings(chord: ChordShape): number[] {
   return chord.frets.flatMap((fret, string) => (fret < 0 ? [string] : []));
 }
 
+function stringFor(midi: number): number {
+  return OPEN.reduce((best, open, index) => (open <= midi ? index : best), 0);
+}
+
 export function shapeMidis(chord: ChordShape): number[] {
   return stringNotes(chord).map((note) => note.midi);
 }
@@ -75,6 +90,8 @@ export function warmShape(chord: ChordShape): void {
 export function stopGuitar(): void {
   generation += 1;
   engine?.voices.stopAll();
+  engine?.lead.stopAll();
+  engine?.metronome.stopAll();
 }
 
 /** Corta lo que estaba programado, pero deja sonar las cuerdas que ya vibran. */
@@ -82,6 +99,8 @@ function cancelPending(): number {
   generation += 1;
   if (engine) {
     engine.voices.cancelAfter(engine.context.currentTime);
+    engine.lead.cancelAfter(engine.context.currentTime);
+    engine.metronome.stopAll();
   }
   return generation;
 }
@@ -150,7 +169,7 @@ export function playMidi(midi: number, when = 0, hold = 2.4, velocity = 0.8): vo
     if (ticket !== generation) {
       return;
     }
-    const string = OPEN.reduce((best, open, index) => (open <= midi ? index : best), 0);
+    const string = stringFor(midi);
     const random = freshRandom();
     schedule(
       active,
@@ -241,4 +260,84 @@ export async function playSlots(
 
 export function patternDuration(bpm: number): number {
   return (60 / bpm) * 4;
+}
+
+export interface GuidePlayback {
+  /** Forma de cada acorde de la guía, en el mismo orden; null si no se encontró. */
+  shapes: Array<ChordShape | null>;
+  hits: GuideHit[];
+  notes: GuideNote[];
+  bpm: number;
+  beatsPerBar: number;
+  /** Pulsos de clic antes del primer golpe. */
+  countIn: number;
+  metronome: boolean;
+  length: number;
+}
+
+/**
+ * Toca un tramo de una guía. Resuelve con los segundos que faltan para el primer golpe
+ * (cuenta de entrada incluida), o null si otra reproducción lo reemplazó.
+ */
+export async function playGuide(playback: GuidePlayback): Promise<number | null> {
+  const ticket = cancelPending();
+  const active = audioEngine();
+  const present = playback.shapes.filter((shape): shape is ChordShape => shape !== null);
+  const samples = await bank.loadAll(active.context, [
+    ...present.flatMap(shapeMidis),
+    ...playback.notes.map((note) => note.midi),
+  ]);
+  if (ticket !== generation) {
+    return null;
+  }
+  const quarter = 60 / playback.bpm;
+  const random = freshRandom();
+  const origin = active.context.currentTime + LEAD;
+  const start = origin + playback.countIn * quarter;
+  const clicks = playback.countIn + (playback.metronome ? Math.ceil(playback.length) : 0);
+  for (let beat = 0; beat < clicks; beat += 1) {
+    const inSong = beat - playback.countIn;
+    const accent = inSong < 0 ? beat === 0 : inSong % playback.beatsPerBar === 0;
+    active.metronome.click(origin + beat * quarter, accent);
+  }
+  // Con melodía, el acompañamiento baja un poco para dejarla adelante.
+  const backing = playback.notes.length > 0 ? 0.8 : 1;
+  for (const hit of playback.hits) {
+    const chord = playback.shapes[hit.chord];
+    if (!chord) {
+      continue;
+    }
+    const at = start + hit.at * quarter + (hit.at === 0 ? 0 : jitter(random, HIT_TIMING_JITTER));
+    for (const string of mutedStrings(chord)) {
+      active.voices.damp(string, at);
+    }
+    const strikes = performStrum(
+      {
+        notes: stringNotes(chord),
+        direction: hit.direction,
+        at,
+        velocity: accentFor(hit.at) * backing * (1 + jitter(random, 0.05)),
+        quarter,
+      },
+      random,
+    );
+    schedule(active, samples, strikes, CHORD_RING, random);
+  }
+  for (const note of playback.notes) {
+    const sample = samples.get(note.midi);
+    if (sample) {
+      active.lead.strike(
+        {
+          string: stringFor(note.midi),
+          midi: note.midi,
+          at: start + note.start * quarter,
+          velocity: 0.78 * (1 + jitter(random, 0.04)),
+          muted: false,
+        },
+        sample,
+        { ring: note.beats * quarter + 0.05, detuneCents: jitter(random, DETUNE_CENTS) },
+      );
+    }
+  }
+  return start - active.context.currentTime;
 }

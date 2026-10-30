@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { ApiClient, ApiError } from "../api/client";
 import { pollJob } from "../api/songs";
 import type { Song, SongStudy } from "../domain/types";
@@ -13,6 +13,7 @@ export function LibraryPage() {
   const setSong = useSession((state) => state.setSong);
   const setStudy = useSession((state) => state.setStudy);
   const setTeachingMode = useSession((state) => state.setTeachingMode);
+  const setPracticePattern = useSession((state) => state.setPracticePattern);
   const selected = useSession((state) => state.song);
   const navigate = useNavigate();
   const [study, setLocalStudy] = useState<SongStudy | null>(null);
@@ -66,31 +67,8 @@ export function LibraryPage() {
       return;
     }
     setTeachingMode("acordes");
+    setPracticePattern(null);
     navigate("/practica");
-  }
-
-  async function upload(file: File | undefined) {
-    if (!file) {
-      return;
-    }
-    if (!token) {
-      setState("error");
-      setMessage("Entra para guardar la canción importada.");
-      return;
-    }
-    setState("loading");
-    try {
-      const result = await new ApiClient(apiUrl, fetch, token).uploadSong(file);
-      setSong(result.song);
-      setStudy(result.study);
-      setLocalStudy(result.study);
-      setSongs((current) => [result.song, ...current.filter((item) => item.id !== result.song.id)]);
-      setMessage(result.study.summary);
-      setState("idle");
-    } catch (error) {
-      setState("error");
-      setMessage(error instanceof ApiError ? error.message : "No se pudo leer el archivo.");
-    }
   }
 
   async function importChart() {
@@ -121,33 +99,14 @@ export function LibraryPage() {
         <p className="lead">Sube una carta en texto o MusicXML. El análisis arma la progresión.</p>
       </header>
       <section className="panel guide">
-        <h2>Qué archivo subir</h2>
-        <ul>
-          <li>
-            <strong>ChordPro</strong> (.cho, .chopro, .pro). Es un texto con acordes entre
-            corchetes. Se escribe a mano o se exporta desde un editor ChordPro en chordpro.org.
-          </li>
-          <li>
-            <strong>Texto</strong> (.txt) con líneas title, artist, bpm y key, y los acordes entre
-            corchetes.
-          </li>
-          <li>
-            <strong>MusicXML</strong> (.musicxml, .xml) sin comprimir. En MuseScore: Archivo,
-            Exportar, MusicXML. Sirve para partituras propias o de dominio público, por ejemplo las
-            de imslp.org.
-          </li>
-        </ul>
+        <h2>¿Quieres aprender otra canción?</h2>
         <p>
-          No uses tablaturas descargadas de sitios de pago: el archivo tiene que ser tuyo o libre.
+          En Mis canciones pegas los acordes de la canción que elijas, o subes un ChordPro o
+          MusicXML, y la app arma una guía por secciones con su rasgueo.
         </p>
-        <label className="button">
-          Subir carta
-          <input
-            type="file"
-            accept=".cho,.chopro,.pro,.txt,.musicxml,.xml"
-            onChange={(event) => void upload(event.target.files?.[0])}
-          />
-        </label>
+        <Link className="button" to="/canciones">
+          Ir a mis canciones
+        </Link>
       </section>
       <form className="panel search-bar" onSubmit={(event) => void search(event)}>
         <label>

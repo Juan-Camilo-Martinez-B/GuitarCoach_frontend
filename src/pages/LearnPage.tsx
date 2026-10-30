@@ -14,6 +14,7 @@ export function LearnPage() {
   const setSong = useSession((state) => state.setSong);
   const setStudy = useSession((state) => state.setStudy);
   const setTeachingMode = useSession((state) => state.setTeachingMode);
+  const setPracticePattern = useSession((state) => state.setPracticePattern);
   const navigate = useNavigate();
   const [course, setCourse] = useState<Curriculum>(previewCurriculum);
   const [openId, setOpenId] = useState<string | null>(previewCurriculum().lessons[0]?.id ?? null);
@@ -89,6 +90,7 @@ export function LearnPage() {
         setStudy(null);
       }
       setTeachingMode("acordes");
+      setPracticePattern(null);
       setState("idle");
       navigate("/practica");
     } catch (error) {

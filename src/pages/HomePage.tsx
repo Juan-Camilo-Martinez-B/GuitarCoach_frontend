@@ -26,8 +26,14 @@ const OPTIONS = [
     text: "Busca una carta o sube ChordPro, texto o MusicXML para estudiarla.",
   },
   {
-    href: "/informe",
+    href: "/canciones",
     index: "05",
+    title: "Mis canciones",
+    text: "Pega los acordes de la canción que quieras y practícala por secciones, a tu tempo.",
+  },
+  {
+    href: "/informe",
+    index: "06",
     title: "Informe",
     text: "Elige canción completa, quiz o progresión según lo que ya practicaste.",
   },

@@ -1,6 +1,13 @@
 import type { ChartChord } from "./types";
 
 const CHORD = /^([A-G])(#|b)?(.*)$/;
+// Las mismas cualidades que acepta la API; las largas primero.
+const CANONICAL =
+  /^[A-G](#|b)?(maj9|maj7|m7b5|m7|m6|m9|7sus4|sus2|sus4|dim7|dim|aug|add9|m|7|6|9)?$/;
+
+export function isChordSymbol(symbol: string): boolean {
+  return CANONICAL.test(symbol.trim());
+}
 
 export function parseChord(symbol: string): { root: string; quality: string } {
   const match = CHORD.exec(symbol.trim());
