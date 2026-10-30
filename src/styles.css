@@ -1541,6 +1541,101 @@ label.check input {
   font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
 }
 
+/* Biblioteca, informe, afinador e inicio */
+button.song-card {
+  width: 100%;
+  border: 0;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+button.song-card[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--brass) 14%, var(--panel));
+  color: var(--ink);
+  box-shadow: inset 0 0 0 2px var(--brass);
+}
+
+.song-card-chords {
+  color: var(--brass);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.attempt-list {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.attempt-list li {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.6rem 0.8rem;
+  border-radius: 0.9rem;
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+.attempt-list li.is-chosen {
+  box-shadow: inset 0 0 0 2px var(--brass);
+}
+
+.attempt-song {
+  font-weight: 600;
+}
+
+.attempt-date {
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.attempt-score {
+  font-family: var(--display);
+  font-size: 1.3rem;
+}
+
+.meter.is-afinada .note-readout,
+.meter.is-afinada .cents-readout {
+  color: var(--good);
+}
+
+.meter.is-subir .cents-readout,
+.meter.is-bajar .cents-readout {
+  color: var(--brass);
+}
+
+.reference-strings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.reference-strings button[aria-pressed="true"] {
+  box-shadow: inset 0 0 0 2px var(--good);
+}
+
+.resume-card {
+  display: grid;
+  gap: 0.3rem;
+  margin-bottom: 1.2rem;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.resume-card strong {
+  font-family: var(--display);
+  font-size: 1.4rem;
+}
+
+.resume-card:hover,
+.resume-card:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--brass);
+}
+
 @media (max-width: 1100px) {
   .setlist {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1601,6 +1696,10 @@ label.check input {
   .player-controls,
   .section-draft-head {
     grid-template-columns: 1fr;
+  }
+
+  .attempt-list li {
+    grid-template-columns: 1fr auto;
   }
 
   .guide-now-chords {

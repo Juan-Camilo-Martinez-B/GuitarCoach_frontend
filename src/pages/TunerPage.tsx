@@ -1,13 +1,26 @@
 import { useEffect, useRef, useState } from "react";
 import { AudioEngine, tunerStatusLabel, type EngineState } from "../audio/engine/AudioEngine";
+import { playMidi, warmNotes } from "../audio/guitarTone";
 import { needleX } from "../audio/tuner/channel";
 import { startPitchMonitor } from "../audio/tuner/listen";
+import {
+  GUITAR_STRINGS,
+  nearestString,
+  readingMidi,
+  tuningAdvice,
+  type GuitarString,
+} from "../audio/tuner/strings";
 import { THEME_EVENT } from "../theme/theme";
 
-function paintNeedle(canvas: HTMLCanvasElement, context: CanvasRenderingContext2D, cents: number) {
+function paintNeedle(
+  canvas: HTMLCanvasElement,
+  context: CanvasRenderingContext2D,
+  cents: number,
+  inTune: boolean,
+) {
   const styles = getComputedStyle(document.documentElement);
   const tick = styles.getPropertyValue("--tick").trim();
-  const brass = styles.getPropertyValue("--brass").trim();
+  const needle = styles.getPropertyValue(inTune ? "--good" : "--brass").trim();
   context.clearRect(0, 0, canvas.width, canvas.height);
   context.strokeStyle = tick;
   context.lineWidth = 1;
@@ -20,7 +33,7 @@ function paintNeedle(canvas: HTMLCanvasElement, context: CanvasRenderingContext2
     context.stroke();
   }
   const center = needleX(cents, canvas.width);
-  context.strokeStyle = brass;
+  context.strokeStyle = needle;
   context.lineWidth = 3;
   context.lineCap = "round";
   context.beginPath();
@@ -29,22 +42,20 @@ function paintNeedle(canvas: HTMLCanvasElement, context: CanvasRenderingContext2
   context.stroke();
 }
 
-function centsLabel(cents: number): string {
-  if (cents > 0) {
-    return `+${cents} cents`;
-  }
-  return `${cents} cents`;
+interface Target {
+  string: GuitarString;
+  cents: number;
 }
 
 export function TunerPage() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const centsRef = useRef(0);
+  const centsRef = useRef({ cents: 0, inTune: false });
   const stopRef = useRef<(() => void) | null>(null);
   const [state, setState] = useState<EngineState>("idle");
-  const [note, setNote] = useState("");
-  const [cents, setCents] = useState(0);
+  const [target, setTarget] = useState<Target | null>(null);
 
   useEffect(() => {
+    warmNotes(GUITAR_STRINGS.map((string) => string.midi));
     return () => {
       stopRef.current?.();
     };
@@ -62,7 +73,7 @@ export function TunerPage() {
     let frame = 0;
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const paint = () => {
-      paintNeedle(canvas, context, centsRef.current);
+      paintNeedle(canvas, context, centsRef.current.cents, centsRef.current.inTune);
       if (!reduced) {
         frame = requestAnimationFrame(paint);
       }
@@ -79,12 +90,17 @@ export function TunerPage() {
     };
   }, []);
 
+  function show(next: Target | null) {
+    centsRef.current = next
+      ? { cents: next.cents, inTune: tuningAdvice(next.cents).kind === "afinada" }
+      : { cents: 0, inTune: false };
+    setTarget(next);
+  }
+
   async function activate() {
     stopRef.current?.();
     stopRef.current = null;
-    centsRef.current = 0;
-    setCents(0);
-    setNote("");
+    show(null);
     const engine = new AudioEngine({
       request: async () => {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -92,15 +108,7 @@ export function TunerPage() {
           return;
         }
         stopRef.current = await startPitchMonitor(stream, (reading) => {
-          if (!reading) {
-            centsRef.current = 0;
-            setCents(0);
-            setNote("");
-            return;
-          }
-          centsRef.current = reading.cents;
-          setCents(reading.cents);
-          setNote(`${reading.name}${reading.octave}`);
+          show(reading ? nearestString(readingMidi(reading)) : null);
         });
       },
     });
@@ -108,26 +116,70 @@ export function TunerPage() {
     setState(engine.state);
   }
 
+  function deactivate() {
+    stopRef.current?.();
+    stopRef.current = null;
+    show(null);
+    setState("idle");
+  }
+
+  const advice = target ? tuningAdvice(target.cents) : null;
+  const listening = state === "listening";
+
   return (
     <main className="page">
       <header className="page-head">
         <p className="eyebrow">Cuerda a cuerda</p>
         <h1>Afinador</h1>
-        <p className="lead">Centra la aguja antes de entrar a la carta.</p>
+        <p className="lead">
+          Toca una cuerda al aire. La aguja muestra cuánto le falta para su nota.
+        </p>
       </header>
-      <section className="meter" aria-label="Tablero del afinador">
-        <canvas ref={canvasRef} width={640} height={120} aria-label="Aguja del afinador" />
-        <p className={note ? "note-readout" : "note-readout is-idle"}>{note || "A la espera"}</p>
-        <p className="cents-readout">{note ? centsLabel(cents) : "Toca una cuerda"}</p>
+      <section
+        className={advice ? `meter is-${advice.kind}` : "meter"}
+        aria-label="Tablero del afinador"
+      >
+        <canvas ref={canvasRef} width={640} height={120} aria-hidden="true" />
+        <p className={target ? "note-readout" : "note-readout is-idle"}>
+          {target ? `Cuerda ${target.string.number}` : "A la espera"}
+        </p>
+        <p className="cents-readout" role="status">
+          {target && advice
+            ? `${target.string.name} · ${target.cents > 0 ? "+" : ""}${target.cents} cents · ${advice.text}`
+            : listening
+              ? "Toca una cuerda"
+              : "Activa el micrófono para empezar"}
+        </p>
       </section>
       <div className="actions">
-        <button type="button" onClick={() => void activate()}>
-          Activar micrófono
-        </button>
-        <p className="status-pill" role="status">
-          {tunerStatusLabel(state)}
-        </p>
+        {listening ? (
+          <button type="button" onClick={deactivate}>
+            Apagar micrófono
+          </button>
+        ) : (
+          <button type="button" onClick={() => void activate()}>
+            Activar micrófono
+          </button>
+        )}
+        <p className="status-pill">{tunerStatusLabel(state)}</p>
       </div>
+      <section className="panel">
+        <h2>Tono de referencia</h2>
+        <p className="hint">Pulsa una cuerda para oír cómo debe sonar y compárala de oído.</p>
+        <div className="reference-strings" role="group" aria-label="Cuerdas al aire">
+          {GUITAR_STRINGS.map((string) => (
+            <button
+              key={string.number}
+              type="button"
+              className="button-ghost"
+              aria-pressed={target?.string.number === string.number}
+              onClick={() => playMidi(string.midi)}
+            >
+              <strong>{string.number}</strong> {string.name}
+            </button>
+          ))}
+        </div>
+      </section>
     </main>
   );
 }

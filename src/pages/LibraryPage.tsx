@@ -1,12 +1,17 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ApiClient, ApiError } from "../api/client";
-import { pollJob } from "../api/songs";
+import { spanishName } from "../chords/shapes";
 import type { Song, SongStudy } from "../domain/types";
 import { useSession } from "../store/session";
 import { StatusMessage } from "../ui/StatusMessage";
 
 const apiUrl = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+const CATALOG_QUERY = "GuitarCoach";
+
+function uniqueChords(song: Song): string[] {
+  return [...new Set(song.chords.map((chord) => chord.chord))];
+}
 
 export function LibraryPage() {
   const token = useSession((state) => state.token);
@@ -17,37 +22,31 @@ export function LibraryPage() {
   const selected = useSession((state) => state.song);
   const navigate = useNavigate();
   const [study, setLocalStudy] = useState<SongStudy | null>(null);
-  const [query, setQuery] = useState("GuitarCoach");
+  const [query, setQuery] = useState("");
   const [songs, setSongs] = useState<Song[]>([]);
   const [state, setState] = useState<"idle" | "loading" | "error">("idle");
   const [message, setMessage] = useState("");
 
-  const runSearch = useCallback(
-    async (text: string) => {
-      setState("loading");
-      try {
-        const found = await new ApiClient(apiUrl).searchSongs(text);
-        setSongs(found);
-        if (found[0]) {
-          setSong(found[0]);
-        }
-        setMessage(found.length === 0 ? "No hay cartas con ese texto." : "");
-        setState("idle");
-      } catch (error) {
-        setState("error");
-        setMessage(error instanceof ApiError ? error.message : "No se pudo buscar.");
-      }
-    },
-    [setSong],
-  );
+  const runSearch = useCallback(async (text: string) => {
+    setState("loading");
+    try {
+      const found = await new ApiClient(apiUrl).searchSongs(text);
+      setSongs(found);
+      setMessage(found.length === 0 ? "No hay canciones con ese texto en el catálogo." : "");
+      setState("idle");
+    } catch (error) {
+      setState("error");
+      setMessage(error instanceof ApiError ? error.message : "No se pudo buscar.");
+    }
+  }, []);
 
   useEffect(() => {
-    void runSearch("GuitarCoach");
+    void runSearch(CATALOG_QUERY);
   }, [runSearch]);
 
   async function search(event: FormEvent) {
     event.preventDefault();
-    await runSearch(query);
+    await runSearch(query.trim() || CATALOG_QUERY);
   }
 
   async function select(song: Song) {
@@ -62,7 +61,7 @@ export function LibraryPage() {
     }
   }
 
-  function teach() {
+  function practice() {
     if (!selected) {
       return;
     }
@@ -71,33 +70,65 @@ export function LibraryPage() {
     navigate("/practica");
   }
 
-  async function importChart() {
-    setState("loading");
-    try {
-      const client = new ApiClient(apiUrl);
-      const created = await client.importSong(query);
-      const status = await pollJob(
-        () => client.job(created.id),
-        () => Promise.resolve(),
-      );
-      setMessage(status === "done" ? "Importación lista." : "La importación no terminó.");
-      setState(status === "failed" ? "error" : "idle");
-      if (status === "done") {
-        await runSearch(query);
-      }
-    } catch (error) {
-      setState("error");
-      setMessage(error instanceof ApiError ? error.message : "No se pudo importar.");
-    }
-  }
-
   return (
     <main className="page">
       <header className="page-head">
         <p className="eyebrow">Cancionero</p>
         <h1>Biblioteca</h1>
-        <p className="lead">Sube una carta en texto o MusicXML. El análisis arma la progresión.</p>
+        <p className="lead">
+          Canciones de práctica listas para tocar, de menor a mayor dificultad.
+        </p>
       </header>
+      <form className="panel search-bar" onSubmit={(event) => void search(event)}>
+        <label>
+          Buscar por canción o artista
+          <input
+            value={query}
+            placeholder="Por ejemplo: Lamento"
+            onChange={(event) => setQuery(event.target.value)}
+          />
+        </label>
+        <div className="actions">
+          <button type="submit">Buscar</button>
+        </div>
+      </form>
+      <StatusMessage state={state} message={message} />
+      {state === "idle" && message ? <p className="hint">{message}</p> : null}
+      <ul className="guide-list" aria-label="Canciones">
+        {songs.map((song) => (
+          <li key={song.id}>
+            <button
+              type="button"
+              className="guide-card song-card"
+              aria-pressed={selected?.id === song.id}
+              onClick={() => void select(song)}
+            >
+              <span className="guide-card-title">{song.title}</span>
+              <span className="guide-card-meta">
+                {song.artist} · {song.bpm} BPM
+                {song.songKey ? ` · tono ${spanishName(song.songKey)}` : ""}
+              </span>
+              <span className="song-card-chords">
+                {uniqueChords(song)
+                  .map((chord) => spanishName(chord))
+                  .join(" · ")}
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+      {selected && study ? (
+        <section className="panel">
+          <h2>{selected.title}</h2>
+          <p>{study.summary}</p>
+          <p>Dificultad: {study.difficulty}</p>
+          <div className="actions">
+            <button type="button" onClick={practice}>
+              Practicar esta canción
+            </button>
+          </div>
+        </section>
+      ) : null}
       <section className="panel guide">
         <h2>¿Quieres aprender otra canción?</h2>
         <p>
@@ -108,42 +139,6 @@ export function LibraryPage() {
           Ir a mis canciones
         </Link>
       </section>
-      <form className="panel search-bar" onSubmit={(event) => void search(event)}>
-        <label>
-          Canción
-          <input value={query} onChange={(event) => setQuery(event.target.value)} />
-        </label>
-        <div className="actions">
-          <button type="submit">Buscar</button>
-          <button className="button-ghost" type="button" onClick={() => void importChart()}>
-            Importar
-          </button>
-        </div>
-      </form>
-      <StatusMessage state={state} message={message} />
-      <ul className="songs">
-        {songs.map((song) => (
-          <li key={song.id}>
-            <button type="button" onClick={() => void select(song)}>
-              {song.title}
-              {selected?.id === song.id ? " · elegida" : ""}
-            </button>
-          </li>
-        ))}
-      </ul>
-      {study ? (
-        <section className="panel">
-          <h2>Análisis</h2>
-          <p>{study.summary}</p>
-          <p>Dificultad: {study.difficulty}</p>
-          <div className="actions">
-            <button type="button" onClick={teach}>
-              Practicar acordes
-            </button>
-          </div>
-        </section>
-      ) : null}
-      <p className="hint">{message}</p>
     </main>
   );
 }

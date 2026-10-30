@@ -15,6 +15,7 @@ import {
   type GuideStatus,
   type SongGuide,
 } from "../domain/guide";
+import { rememberVisit } from "../store/lastVisit";
 import { useSession } from "../store/session";
 import { ChordFigure } from "../ui/ChordDiagram";
 import { GuideEditor } from "../ui/GuideEditor";
@@ -82,7 +83,9 @@ export function GuidePage() {
     }
     setState("loading");
     try {
-      setRecord(await new ApiClient(apiUrl, fetch, token).guide(guideId));
+      const loaded = await new ApiClient(apiUrl, fetch, token).guide(guideId);
+      setRecord(loaded);
+      rememberVisit({ path: `/canciones/${guideId}`, label: `Seguir con ${loaded.title}` });
       setState("idle");
     } catch (error) {
       setState("error");

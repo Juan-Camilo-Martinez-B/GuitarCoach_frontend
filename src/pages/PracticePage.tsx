@@ -2,18 +2,19 @@ import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { ApiClient, ApiError } from "../api/client";
 import { playChord, playPattern, playSlots, playStrum, stopGuitar } from "../audio/guitarTone";
-import { startPitchMonitor } from "../audio/tuner/listen";
+import { chordCandidates } from "../audio/dsp/chordRecognizer";
+import { vote } from "../audio/dsp/chordTemplates";
+import { startChordMonitor } from "../audio/tuner/listen";
 import { shapeFor, spanishName } from "../chords/shapes";
 import { patternForTitle } from "../domain/course";
 import type { Song, SongStudy, StudyStep } from "../domain/types";
 import { layoutChart } from "../game/ChartRenderer";
-import { chordVerdictText } from "../game/chordVerdict";
+import { judgementVerdict } from "../game/chordVerdict";
 import { practiceCommand, type GamePhase } from "../game/GameLoop";
-import { detectedChord } from "../game/heardChord";
 import { useSession } from "../store/session";
 import { ChordFigure } from "../ui/ChordDiagram";
 import { queueStrumMarks } from "../ui/strumMarks";
-import { STRUM_GLYPH, StrumRail } from "../ui/StrumRail";
+import { StrumRail } from "../ui/StrumRail";
 
 const apiUrl = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 
@@ -45,10 +46,11 @@ export function PracticePage() {
   const [picked, setPicked] = useState(0);
   const [arrow, setArrow] = useState(-1);
   const [marks, setMarks] = useState<Record<number, Mark>>({});
-  const [verdict, setVerdict] = useState("Escuchando. Toca el acorde.");
+  const [verdict, setVerdict] = useState("Pulsa Escuchar mi guitarra y toca el acorde.");
+  const [listening, setListening] = useState(false);
   const [verdictKind, setVerdictKind] = useState<"espera" | Mark>("espera");
   const stopRef = useRef<StopListening | null>(null);
-  const heardRef = useRef<string | null>(null);
+  const heardRef = useRef<Array<string | null>>([]);
   const hitsRef = useRef<Map<number, { detected: string | null; deltaMs: number }>>(new Map());
   const startedRef = useRef(0);
   const savingRef = useRef(false);
@@ -57,7 +59,6 @@ export function PracticePage() {
   const symbolRef = useRef("");
   const drillRef = useRef<Drill>("acorde");
   const endTimer = useRef(0);
-  const stableRef = useRef({ note: "", count: 0 });
   drillRef.current = drill;
 
   const steps = song ? practiceSteps(song, study) : [];
@@ -74,74 +75,74 @@ export function PracticePage() {
     };
   }, []);
 
-  useEffect(() => {
-    if (!song || drill === "progresion") {
+  const songSymbols = [...new Set(steps.map((item) => item.symbol))];
+  const symbolsRef = useRef<string[]>([]);
+  symbolsRef.current = songSymbols;
+
+  async function openMicrophone(): Promise<MediaStream | null> {
+    const media = navigator.mediaDevices?.getUserMedia?.bind(navigator.mediaDevices);
+    if (!media) {
+      setVerdict("Este navegador no abrió el micrófono.");
+      setVerdictKind("no");
+      return null;
+    }
+    try {
+      const stream = await media({ audio: true });
+      return stream instanceof MediaStream ? stream : null;
+    } catch {
+      setVerdict(
+        "Permiso de micrófono denegado. Actívalo en el candado de la barra de direcciones.",
+      );
+      setVerdictKind("no");
+      return null;
+    }
+  }
+
+  async function stopListening() {
+    await stopRef.current?.();
+    stopRef.current = null;
+    setListening(false);
+  }
+
+  async function startListening() {
+    await stopListening();
+    const stream = await openMicrophone();
+    if (!stream) {
       return;
     }
-    let closed = false;
-    let localStop: StopListening | null = null;
-    const withStrum = drill === "rasgueo";
-    stableRef.current = { note: "", count: 0 };
-
-    async function listen() {
-      const media = navigator.mediaDevices?.getUserMedia?.bind(navigator.mediaDevices);
-      if (!media) {
-        setVerdict("Este navegador no abrió el micrófono.");
-        setVerdictKind("no");
-        return;
-      }
-      let stream: MediaStream;
-      try {
-        stream = await media({ audio: true });
-      } catch {
-        if (!closed) {
-          setVerdict("Permiso de micrófono denegado.");
-          setVerdictKind("no");
+    const withStrum = drillRef.current === "rasgueo";
+    heardRef.current = [];
+    setListening(true);
+    setVerdict(`Escuchando. Toca ${spanishName(symbolRef.current)}.`);
+    setVerdictKind("espera");
+    stopRef.current = await startChordMonitor(
+      stream,
+      () =>
+        symbolRef.current
+          ? {
+              symbol: symbolRef.current,
+              candidates: chordCandidates(symbolRef.current, symbolsRef.current),
+            }
+          : null,
+      (judgement) => {
+        // Tres tramos seguidos votan: así el veredicto no parpadea con cada golpe.
+        heardRef.current = [...heardRef.current, judgement?.heard ?? null].slice(-3);
+        const heard = vote(heardRef.current);
+        const count = heardRef.current.filter((item) => item === heard).length;
+        if (heard === null || count < 2) {
+          return;
         }
-        return;
-      }
-      if (closed || !(stream instanceof MediaStream)) {
-        stream.getTracks?.().forEach((track) => track.stop());
-        return;
-      }
-      localStop = await startPitchMonitor(stream, (reading) => {
-        const note = reading?.name ?? null;
         const expected = symbolRef.current;
-        if (!expected) {
-          return;
-        }
-        if (!note) {
-          stableRef.current = { note: "", count: 0 };
-          return;
-        }
-        if (stableRef.current.note === note) {
-          stableRef.current.count += 1;
-        } else {
-          stableRef.current = { note, count: 1 };
-        }
-        if (stableRef.current.count < 4) {
-          return;
-        }
-        const text = chordVerdictText(note, expected);
-        const ok = text.startsWith("Bien");
-        setVerdict(withStrum && ok ? `Bien. ${spanishName(expected)} con el rasgueo.` : text);
-        setVerdictKind(ok ? "bien" : "no");
-      });
-      stopRef.current = localStop;
-      if (closed) {
-        await localStop();
-      }
-    }
-
-    void listen();
-    return () => {
-      closed = true;
-      void localStop?.();
-      if (stopRef.current === localStop) {
-        stopRef.current = null;
-      }
-    };
-  }, [drill, song]);
+        const result = judgementVerdict(heard, heard === expected, expected);
+        setVerdict(
+          withStrum && result.kind === "bien"
+            ? `Bien. ${spanishName(expected)} con el rasgueo.`
+            : result.text,
+        );
+        setVerdictKind(result.kind);
+      },
+    );
+  }
 
   async function finish() {
     if (savingRef.current || !song || drillRef.current !== "progresion") {
@@ -193,59 +194,59 @@ export function PracticePage() {
     stopRef.current = null;
     savingRef.current = false;
     hitsRef.current = new Map();
-    heardRef.current = null;
+    heardRef.current = [];
     setMarks({});
     setActive(0);
     setPhase("playing");
     setVerdict(token ? "En curso. Toca cada acorde." : "En curso. Esta práctica no se guardará.");
     setVerdictKind("espera");
-    const media = navigator.mediaDevices?.getUserMedia?.bind(navigator.mediaDevices);
-    if (!media) {
-      setVerdict("Este navegador no abrió el micrófono.");
-      setVerdictKind("no");
-      return;
-    }
-    let stream: MediaStream;
-    try {
-      stream = await media({ audio: true });
-    } catch {
-      setVerdict("Permiso de micrófono denegado.");
-      setVerdictKind("no");
+    const stream = await openMicrophone();
+    if (!stream) {
       setPhase("idle");
-      return;
-    }
-    if (!(stream instanceof MediaStream)) {
-      setVerdict("En curso, sin análisis de audio.");
       return;
     }
     startedRef.current = performance.now();
     const chart = practiceSteps(song, study);
-    stopRef.current = await startPitchMonitor(stream, (reading) => {
-      const note = reading?.name ?? null;
-      heardRef.current = note;
-      const elapsed = performance.now() - startedRef.current;
-      chart.forEach((step, index) => {
-        const at = chordAt(step.bar, step.beat, song.bpm);
-        if (Math.abs(elapsed - at) < 180) {
-          setActive(index);
-          setPicked(index);
-        }
-        if (hitsRef.current.has(index) || note === null) {
+    const symbols = [...new Set(chart.map((item) => item.symbol))];
+    const windowIndex = (elapsed: number) =>
+      chart.findIndex((item, index) => {
+        const at = chordAt(item.bar, item.beat, song.bpm);
+        return !hitsRef.current.has(index) && elapsed >= at - 80 && elapsed <= at + 700;
+      });
+    stopRef.current = await startChordMonitor(
+      stream,
+      () => {
+        const index = windowIndex(performance.now() - startedRef.current);
+        return index < 0
+          ? null
+          : {
+              symbol: chart[index].symbol,
+              candidates: chordCandidates(chart[index].symbol, symbols),
+            };
+      },
+      (judgement) => {
+        const elapsed = performance.now() - startedRef.current;
+        chart.forEach((item, index) => {
+          if (Math.abs(elapsed - chordAt(item.bar, item.beat, song.bpm)) < 180) {
+            setActive(index);
+            setPicked(index);
+          }
+        });
+        const index = windowIndex(elapsed);
+        if (index < 0 || !judgement?.heard) {
           return;
         }
-        if (elapsed >= at - 80 && elapsed <= at + 700) {
-          const detected = detectedChord(note, step.symbol);
-          const ok = detected === step.symbol;
-          hitsRef.current.set(index, {
-            detected,
-            deltaMs: Math.round(elapsed - at),
-          });
-          setMarks((current) => ({ ...current, [index]: ok ? "bien" : "no" }));
-          setVerdict(chordVerdictText(note, step.symbol));
-          setVerdictKind(ok ? "bien" : "no");
-        }
-      });
-    });
+        const target = chart[index];
+        hitsRef.current.set(index, {
+          detected: judgement.heard,
+          deltaMs: Math.round(elapsed - chordAt(target.bar, target.beat, song.bpm)),
+        });
+        const result = judgementVerdict(judgement.heard, judgement.ok, target.symbol);
+        setMarks((current) => ({ ...current, [index]: judgement.ok ? "bien" : "no" }));
+        setVerdict(result.text);
+        setVerdictKind(judgement.ok ? "bien" : "no");
+      },
+    );
     const last = chart.reduce(
       (max, step) => Math.max(max, chordAt(step.bar, step.beat, song.bpm)),
       0,
@@ -273,8 +274,7 @@ export function PracticePage() {
 
   function choose(next: Drill) {
     window.clearTimeout(endTimer.current);
-    void stopRef.current?.();
-    stopRef.current = null;
+    void stopListening();
     setDrill(next);
     setPhase("idle");
     setActive(-1);
@@ -285,8 +285,8 @@ export function PracticePage() {
       next === "progresion"
         ? "Pulsa Empezar y toca la progresión."
         : symbol
-          ? `Escuchando. Toca ${spanishName(symbol)}.`
-          : "Escuchando. Toca el acorde.",
+          ? `Pulsa Escuchar mi guitarra y toca ${spanishName(symbol)}.`
+          : "Pulsa Escuchar mi guitarra y toca el acorde.",
     );
     setVerdictKind("espera");
   }
@@ -351,7 +351,7 @@ export function PracticePage() {
           {song.artist} · {song.bpm} BPM
         </p>
       </header>
-      <div className="auth-switch" role="tablist" aria-label="Modalidad de práctica">
+      <div className="auth-switch" role="group" aria-label="Modalidad de práctica">
         <button type="button" aria-pressed={drill === "acorde"} onClick={() => choose("acorde")}>
           Acorde solo
         </button>
@@ -369,7 +369,21 @@ export function PracticePage() {
       <p className={`verdict is-${verdictKind}`} role="status">
         {verdict}
       </p>
-      <p className="hint">El micrófono compara la nota más fuerte con la fundamental del acorde.</p>
+      {drill !== "progresion" ? (
+        <div className="actions">
+          <button
+            type="button"
+            aria-pressed={listening}
+            onClick={() => void (listening ? stopListening() : startListening())}
+          >
+            {listening ? "Dejar de escuchar" : "Escuchar mi guitarra"}
+          </button>
+        </div>
+      ) : null}
+      <p className="hint">
+        El micrófono compara todas las notas que suenan con las del acorde. El audio no sale de este
+        navegador.
+      </p>
       <ol className="chart" aria-label="Carta">
         {boxes.map((box, index) => (
           <li key={`${box.x}-${box.symbol}`} className={index === shown ? "is-now" : undefined}>
@@ -380,7 +394,7 @@ export function PracticePage() {
                   ? "Bien"
                   : marks[index] === "no"
                     ? "No"
-                    : STRUM_GLYPH[pattern.directions[index % pattern.directions.length]]}
+                    : `${beatsOf(steps, index)} t`}
               </small>
             </button>
           </li>

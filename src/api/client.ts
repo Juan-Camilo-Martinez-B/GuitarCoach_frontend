@@ -207,6 +207,7 @@ export class ApiClient {
     const body = (await response.json()) as Array<{
       attempt_id: string;
       song_id: number;
+      song_title?: string | null;
       accuracy: number;
       avg_delta_ms: number;
       created_at: string;
@@ -214,6 +215,7 @@ export class ApiClient {
     return body.map((point) => ({
       id: point.attempt_id,
       songId: point.song_id,
+      songTitle: point.song_title ?? null,
       accuracy: point.accuracy,
       avgDeltaMs: point.avg_delta_ms,
       createdAt: point.created_at,

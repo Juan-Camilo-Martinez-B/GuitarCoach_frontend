@@ -6,8 +6,8 @@ import { ThemeToggle } from "../theme/ThemeToggle";
 
 const LINKS = [
   ["/", "Inicio"],
-  ["/afinador", "Afinador"],
   ["/aprendizaje", "Aprendizaje"],
+  ["/afinador", "Afinador"],
   ["/practica", "Práctica"],
   ["/biblioteca", "Biblioteca"],
   ["/canciones", "Mis canciones"],
