@@ -16,8 +16,22 @@ const report: ReportView = {
 };
 
 const points: AttemptSummary[] = [
-  { id: "a1", songId: 1, accuracy: 40, avgDeltaMs: 20, createdAt: "2026-10-03T00:00:00Z" },
-  { id: "a2", songId: 1, accuracy: 80, avgDeltaMs: 10, createdAt: "2026-10-04T00:00:00Z" },
+  {
+    id: "a1",
+    songId: 1,
+    songTitle: "Patio",
+    accuracy: 40,
+    avgDeltaMs: 20,
+    createdAt: "2026-10-03T00:00:00Z",
+  },
+  {
+    id: "a2",
+    songId: 1,
+    songTitle: "Patio",
+    accuracy: 80,
+    avgDeltaMs: 10,
+    createdAt: "2026-10-04T00:00:00Z",
+  },
 ];
 
 describe("informe en pantalla", () => {

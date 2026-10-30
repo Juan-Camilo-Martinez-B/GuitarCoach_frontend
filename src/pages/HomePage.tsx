@@ -1,4 +1,6 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
+import { readVisit } from "../store/lastVisit";
 
 const OPTIONS = [
   {
@@ -26,14 +28,21 @@ const OPTIONS = [
     text: "Busca una carta o sube ChordPro, texto o MusicXML para estudiarla.",
   },
   {
-    href: "/informe",
+    href: "/canciones",
     index: "05",
+    title: "Mis canciones",
+    text: "Pega los acordes de la canción que quieras y practícala por secciones, a tu tempo.",
+  },
+  {
+    href: "/informe",
+    index: "06",
     title: "Informe",
     text: "Elige canción completa, quiz o progresión según lo que ya practicaste.",
   },
 ] as const;
 
 export function HomePage() {
+  const [visit] = useState(readVisit);
   return (
     <main className="page">
       <section className="hero">
@@ -41,6 +50,12 @@ export function HomePage() {
         <h1>Practica con el oído, no con la partitura ajena</h1>
         <p className="lead">El audio se queda en este navegador.</p>
       </section>
+      {visit ? (
+        <Link className="panel resume-card" to={visit.path}>
+          <span className="eyebrow">Continuar donde quedaste</span>
+          <strong>{visit.label}</strong>
+        </Link>
+      ) : null}
       <section className="setlist" aria-label="Opciones">
         {OPTIONS.map((option) => (
           <Link key={option.href} className="set-card" to={option.href}>

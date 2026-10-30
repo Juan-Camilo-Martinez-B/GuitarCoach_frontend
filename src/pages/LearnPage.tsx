@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { ApiClient, ApiError } from "../api/client";
 import { previewCurriculum } from "../domain/course";
 import type { Curriculum } from "../domain/types";
+import { rememberVisit } from "../store/lastVisit";
 import { useSession } from "../store/session";
 import { LessonDesk } from "../ui/LessonDesk";
 import { StatusMessage } from "../ui/StatusMessage";
@@ -14,6 +15,7 @@ export function LearnPage() {
   const setSong = useSession((state) => state.setSong);
   const setStudy = useSession((state) => state.setStudy);
   const setTeachingMode = useSession((state) => state.setTeachingMode);
+  const setPracticePattern = useSession((state) => state.setPracticePattern);
   const navigate = useNavigate();
   const [course, setCourse] = useState<Curriculum>(previewCurriculum);
   const [openId, setOpenId] = useState<string | null>(previewCurriculum().lessons[0]?.id ?? null);
@@ -89,6 +91,7 @@ export function LearnPage() {
         setStudy(null);
       }
       setTeachingMode("acordes");
+      setPracticePattern(null);
       setState("idle");
       navigate("/practica");
     } catch (error) {
@@ -96,6 +99,13 @@ export function LearnPage() {
       setMessage(error instanceof ApiError ? error.message : "No se pudo abrir la canción.");
     }
   }
+
+  useEffect(() => {
+    const lesson = (course.lessons ?? []).find((item) => item.id === openId);
+    if (lesson) {
+      rememberVisit({ path: "/aprendizaje", label: `Seguir el curso: ${lesson.title}` });
+    }
+  }, [course, openId]);
 
   const lessons = course.lessons ?? [];
   const current = lessons.find((lesson) => lesson.id === openId) ?? lessons[0] ?? null;

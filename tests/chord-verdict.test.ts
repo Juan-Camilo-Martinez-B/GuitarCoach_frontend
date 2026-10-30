@@ -1,15 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { chordVerdict, chordVerdictText } from "../src/game/chordVerdict";
+import { judgementVerdict } from "../src/game/chordVerdict";
 
 describe("veredicto del acorde", () => {
-  it("acepta la fundamental del acorde esperado", () => {
-    expect(chordVerdict("E", "Em")).toBe("bien");
-    expect(chordVerdictText("E", "Em")).toBe("Bien. Tocaste Mim.");
+  it("felicita cuando suena el acorde pedido", () => {
+    expect(judgementVerdict("Em", true, "Em")).toEqual({ text: "Bien. Sonó Mim.", kind: "bien" });
   });
 
-  it("rechaza otra nota y espera el silencio", () => {
-    expect(chordVerdict("G", "Em")).toBe("no");
-    expect(chordVerdictText("G", "Em")).toBe("No. Se oyó G, no Mim.");
-    expect(chordVerdict(null, "Em")).toBe("espera");
+  it("dice qué se oyó cuando no coincide", () => {
+    expect(judgementVerdict("G", false, "Em")).toEqual({
+      text: "Se oye Sol, no Mim. Revisa los dedos.",
+      kind: "no",
+    });
+  });
+
+  it("espera mientras no se reconoce ningún acorde", () => {
+    expect(judgementVerdict(null, false, "Em").kind).toBe("espera");
   });
 });

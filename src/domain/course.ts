@@ -110,32 +110,38 @@ const OUTLINE: Array<Omit<LessonView, "status" | "locked">> = [
   },
 ];
 
+// "apagado" es el golpe con la palma sobre las cuerdas: suena percusivo, sin nota.
+export type StrumDirection = "abajo" | "arriba" | "apagado";
+
+export interface StrumPattern {
+  readonly directions: readonly StrumDirection[];
+  readonly beats: readonly number[];
+  readonly hint: string;
+}
+
 export const STRUM_LAMENTO = {
   directions: ["abajo", "abajo", "arriba", "arriba", "abajo", "arriba"],
   beats: [1, 0.5, 0.5, 0.5, 0.5, 0.5],
   hint: "El primer ↓ dura un tiempo. Los otros cinco duran medio tiempo.",
-} as const;
+} as const satisfies StrumPattern;
 
 export const STRUM_BASICO = {
   directions: ["abajo", "abajo", "abajo", "abajo"],
   beats: [1, 1, 1, 1],
   hint: "Cuatro ↓ iguales. Cada uno dura un tiempo.",
-} as const;
+} as const satisfies StrumPattern;
 
 export const STRUM_ABIERTOS = {
   directions: ["abajo", "arriba", "abajo", "arriba"],
   beats: [1.5, 0.5, 1.5, 0.5],
   hint: "El ↓ dura un tiempo y medio. El ↑ dura medio tiempo. Se repite.",
-} as const;
+} as const satisfies StrumPattern;
 
 export const STRUM_MENORES = {
   directions: ["abajo", "abajo", "arriba"],
   beats: [2, 1, 1],
   hint: "El primer ↓ dura dos tiempos. Los dos siguientes duran un tiempo.",
-} as const;
-
-export type StrumPattern =
-  typeof STRUM_LAMENTO | typeof STRUM_BASICO | typeof STRUM_ABIERTOS | typeof STRUM_MENORES;
+} as const satisfies StrumPattern;
 
 export const STRUM_PATTERN = STRUM_LAMENTO.directions;
 export const STRUM_BEATS = STRUM_LAMENTO.beats;

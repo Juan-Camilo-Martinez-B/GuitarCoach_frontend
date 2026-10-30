@@ -20,17 +20,46 @@ const PITCH: Record<string, number> = {
   B: 11,
 };
 
+// Intervalos desde la fundamental para cada cualidad que acepta la API.
+const INTERVALS: Record<string, number[]> = {
+  maj: [0, 4, 7],
+  m: [0, 3, 7],
+  "7": [0, 4, 7, 10],
+  m7: [0, 3, 7, 10],
+  maj7: [0, 4, 7, 11],
+  maj9: [0, 4, 7, 11, 2],
+  m7b5: [0, 3, 6, 10],
+  m6: [0, 3, 7, 9],
+  m9: [0, 3, 7, 10, 2],
+  "6": [0, 4, 7, 9],
+  "9": [0, 4, 7, 10, 2],
+  add9: [0, 4, 7, 2],
+  sus2: [0, 2, 7],
+  sus4: [0, 5, 7],
+  "7sus4": [0, 5, 7, 10],
+  dim: [0, 3, 6],
+  dim7: [0, 3, 6, 9],
+  aug: [0, 4, 8],
+};
+
+// La fundamental pesa más: en la guitarra suele ser la cuerda más grave y la que más suena.
+const ROOT_WEIGHT = 1.4;
+
+export function rootPitch(symbol: string): number {
+  const root = PITCH[parseChord(symbol).root];
+  if (root === undefined) {
+    throw new Error(`Raíz desconocida: ${symbol}`);
+  }
+  return root;
+}
+
 export function templateFor(symbol: string): Float32Array {
   const parsed = parseChord(symbol);
-  const root = PITCH[parsed.root];
-  if (root === undefined) {
-    throw new Error(`Raíz desconocida: ${parsed.root}`);
-  }
-  const minor = parsed.quality.startsWith("m") && !parsed.quality.startsWith("maj");
-  const intervals = minor ? [0, 3, 7] : [0, 4, 7];
+  const root = rootPitch(symbol);
+  const intervals = INTERVALS[parsed.quality] ?? INTERVALS.maj;
   const vector = new Float32Array(12);
   for (const interval of intervals) {
-    vector[(root + interval) % 12] = 1;
+    vector[(root + interval) % 12] = interval === 0 ? ROOT_WEIGHT : 1;
   }
   return vector;
 }

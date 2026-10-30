@@ -106,12 +106,17 @@ function StrumLesson() {
       <button
         type="button"
         onClick={() => {
-          timers.current.forEach((id) => window.clearTimeout(id));
-          timers.current = queueStrumMarks(
-            playPattern(chord, 60, STRUM_BASICO),
-            (hit) => setArrow(hit.hit),
-            () => setArrow(-1),
-          );
+          void playPattern(chord, 60, STRUM_BASICO).then((hits) => {
+            if (hits.length === 0) {
+              return;
+            }
+            timers.current.forEach((id) => window.clearTimeout(id));
+            timers.current = queueStrumMarks(
+              hits,
+              (hit) => setArrow(hit.hit),
+              () => setArrow(-1),
+            );
+          });
         }}
       >
         Escuchar el rasgueo

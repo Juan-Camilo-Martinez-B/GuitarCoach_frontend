@@ -1,6 +1,8 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { Shell } from "./layout/Shell";
 import { AuthPage } from "./pages/AuthPage";
+import { GuidePage } from "./pages/GuidePage";
+import { GuidesPage } from "./pages/GuidesPage";
 import { HomePage } from "./pages/HomePage";
 import { LearnPage } from "./pages/LearnPage";
 import { LibraryPage } from "./pages/LibraryPage";
@@ -17,6 +19,8 @@ export function AppRoutes() {
         <Route path="/aprendizaje" element={<LearnPage />} />
         <Route path="/practica" element={<PracticePage />} />
         <Route path="/biblioteca" element={<LibraryPage />} />
+        <Route path="/canciones" element={<GuidesPage />} />
+        <Route path="/canciones/:guideId" element={<GuidePage />} />
         <Route path="/informe" element={<ReportPage />} />
         <Route path="/entrar" element={<AuthPage />} />
         <Route path="/registro" element={<Navigate to="/entrar?alta=1" replace />} />

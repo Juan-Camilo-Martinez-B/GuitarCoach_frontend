@@ -63,6 +63,7 @@ export interface TelemetryEvent {
 export interface AttemptSummary {
   id: string;
   songId: number;
+  songTitle: string | null;
   accuracy: number;
   avgDeltaMs: number;
   createdAt: string;

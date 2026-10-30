@@ -434,6 +434,21 @@ h2 {
   box-shadow: inset 0 0 0 1px var(--line);
 }
 
+.guitar-loading {
+  position: fixed;
+  right: 1.25rem;
+  bottom: 1.25rem;
+  z-index: 20;
+  margin: 0;
+  padding: 0.5rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--pill-bg);
+  color: var(--ink);
+  font-size: 0.85rem;
+  box-shadow: 0 6px 18px var(--shadow);
+}
+
 .sample-credit {
   margin: 0;
   padding: 0.35rem 1.5rem 1.25rem;
@@ -1296,6 +1311,331 @@ input::placeholder {
   color: var(--ink);
 }
 
+/* Mis canciones y la guía de una canción */
+select,
+textarea {
+  width: 100%;
+  padding: 0.8rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 0.8rem;
+  background: var(--input-bg);
+  color: var(--ink);
+  font: inherit;
+}
+
+textarea {
+  resize: vertical;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--brass);
+  outline-offset: 3px;
+}
+
+code {
+  padding: 0.05rem 0.35rem;
+  border-radius: 0.35rem;
+  background: var(--pill-bg);
+  color: var(--ink);
+  font-size: 0.88em;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 0.8rem;
+}
+
+.guide-new,
+.guide-editor,
+.guide-player {
+  display: grid;
+  gap: 1rem;
+}
+
+.file-button {
+  position: relative;
+  width: fit-content;
+  cursor: pointer;
+}
+
+.file-button input[type="file"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+.guide-help summary {
+  cursor: pointer;
+  color: var(--brass);
+  font-weight: 600;
+}
+
+.guide-help ul {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0.7rem 0 0;
+  padding-left: 1.1rem;
+  color: var(--muted);
+}
+
+.guide-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  gap: 0.8rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.guide-card {
+  display: grid;
+  gap: 0.35rem;
+  height: 100%;
+  padding: 1rem;
+  border-radius: 1rem;
+  color: var(--ink);
+  text-decoration: none;
+  background: color-mix(in srgb, var(--paper) 45%, transparent);
+  box-shadow: inset 0 0 0 1px var(--line);
+  transition: box-shadow 160ms ease;
+}
+
+.guide-card:hover,
+.guide-card:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--brass);
+}
+
+.guide-card-title {
+  font-family: var(--display);
+  font-size: 1.25rem;
+}
+
+.guide-card-meta {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.guide-status {
+  justify-self: start;
+  width: fit-content;
+  padding: 0.2rem 0.65rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  background: var(--pill-bg);
+  color: var(--muted);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+.guide-status.is-revisada {
+  color: var(--good);
+  box-shadow: inset 0 0 0 1px var(--good);
+}
+
+.player-controls {
+  display: grid;
+  grid-template-columns: minmax(12rem, 1fr) minmax(14rem, 2fr);
+  gap: 1rem;
+}
+
+.player-controls input[type="range"] {
+  padding: 0;
+  accent-color: var(--brass);
+}
+
+.player-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem 1.4rem;
+}
+
+label.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+label.check input {
+  width: auto;
+  accent-color: var(--brass);
+}
+
+.guide-now-chords {
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+}
+
+.guide-next strong {
+  font-family: var(--display);
+  font-size: 2rem;
+  color: var(--muted);
+}
+
+.guide-sheet {
+  display: grid;
+  gap: 1rem;
+}
+
+.sheet-section {
+  display: grid;
+  gap: 0.5rem;
+}
+
+/* Grilla de compases iguales, como una hoja de acordes: las barras quedan alineadas. */
+.sheet-section .chart {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(6.5rem, 1fr));
+  row-gap: 0.4rem;
+}
+
+.sheet-section .chart li {
+  min-width: 0;
+  font-size: 1.6rem;
+  white-space: nowrap;
+}
+
+.sheet-section.is-now header button {
+  box-shadow: inset 0 0 0 1px var(--brass);
+  color: var(--brass);
+}
+
+.section-drafts {
+  display: grid;
+  gap: 1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.section-drafts li {
+  display: grid;
+  gap: 0.6rem;
+  padding: 0.9rem;
+  border-radius: 1rem;
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+.section-draft-head {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  align-items: end;
+  gap: 0.8rem;
+}
+
+.guide-saved {
+  width: fit-content;
+  color: var(--good);
+}
+
+.bars-input {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+
+/* Biblioteca, informe, afinador e inicio */
+button.song-card {
+  width: 100%;
+  border: 0;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+button.song-card[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--brass) 14%, var(--panel));
+  color: var(--ink);
+  box-shadow: inset 0 0 0 2px var(--brass);
+}
+
+.song-card-chords {
+  color: var(--brass);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.attempt-list {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.attempt-list li {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.6rem 0.8rem;
+  border-radius: 0.9rem;
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+.attempt-list li.is-chosen {
+  box-shadow: inset 0 0 0 2px var(--brass);
+}
+
+.attempt-song {
+  font-weight: 600;
+}
+
+.attempt-date {
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.attempt-score {
+  font-family: var(--display);
+  font-size: 1.3rem;
+}
+
+.meter.is-afinada .note-readout,
+.meter.is-afinada .cents-readout {
+  color: var(--good);
+}
+
+.meter.is-subir .cents-readout,
+.meter.is-bajar .cents-readout {
+  color: var(--brass);
+}
+
+.reference-strings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.reference-strings button[aria-pressed="true"] {
+  box-shadow: inset 0 0 0 2px var(--good);
+}
+
+.resume-card {
+  display: grid;
+  gap: 0.3rem;
+  margin-bottom: 1.2rem;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.resume-card strong {
+  font-family: var(--display);
+  font-size: 1.4rem;
+}
+
+.resume-card:hover,
+.resume-card:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--brass);
+}
+
 @media (max-width: 1100px) {
   .setlist {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1351,6 +1691,21 @@ input::placeholder {
 
   .hero h1 {
     max-width: none;
+  }
+
+  .player-controls,
+  .section-draft-head {
+    grid-template-columns: 1fr;
+  }
+
+  .attempt-list li {
+    grid-template-columns: 1fr auto;
+  }
+
+  .guide-now-chords {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.8rem;
   }
 }
 

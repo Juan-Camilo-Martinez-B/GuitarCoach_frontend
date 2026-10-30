@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import type { StrumPattern } from "../domain/course";
 import type { Song, SongStudy } from "../domain/types";
 
 export type TeachingMode = "acordes" | "notas";
@@ -19,12 +20,15 @@ interface SessionState {
   study: SongStudy | null;
   teachingMode: TeachingMode;
   lastAttemptId: string | null;
+  /** Rasgueo de la guía que abrió la práctica; null usa el del catálogo. */
+  practicePattern: StrumPattern | null;
   setToken: (token: string | null) => void;
   setLatencyOffsetMs: (value: number) => void;
   setSong: (song: Song | null) => void;
   setStudy: (study: SongStudy | null) => void;
   setTeachingMode: (mode: TeachingMode) => void;
   setLastAttemptId: (attemptId: string | null) => void;
+  setPracticePattern: (pattern: StrumPattern | null) => void;
 }
 
 export const useSession = create<SessionState>((set) => ({
@@ -34,6 +38,7 @@ export const useSession = create<SessionState>((set) => ({
   study: null,
   teachingMode: "acordes",
   lastAttemptId: null,
+  practicePattern: null,
   setToken: (token) => {
     if (typeof sessionStorage !== "undefined") {
       if (token) {
@@ -49,4 +54,5 @@ export const useSession = create<SessionState>((set) => ({
   setStudy: (study) => set({ study }),
   setTeachingMode: (teachingMode) => set({ teachingMode }),
   setLastAttemptId: (lastAttemptId) => set({ lastAttemptId }),
+  setPracticePattern: (practicePattern) => set({ practicePattern }),
 }));

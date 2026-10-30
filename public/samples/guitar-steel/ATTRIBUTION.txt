@@ -1,0 +1,8 @@
+Guitarra acústica de acero (notas MIDI 40 a 86, de E2 a D6)
+
+Origen: FluidR3 GM SoundFont, de Frank Wen.
+Licencia: Creative Commons Attribution 3.0 (CC BY 3.0).
+Conversión a MP3: midi-js-soundfonts, de Benjamin Gleitzman
+https://github.com/gleitz/midi-js-soundfonts
+
+Los archivos no se modificaron. La aplicación recorta el silencio inicial al reproducirlos.
