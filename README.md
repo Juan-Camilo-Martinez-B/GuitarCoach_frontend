@@ -60,6 +60,11 @@ En `/canciones` el usuario crea una guía de estudio de cualquier canción:
 
 La lógica pura vive en `src/domain/guide.ts` (golpes por sección, notación de compases y rasgueo, edición de secciones) y el audio en `playGuide` de `src/audio/guitarTone.ts`. El clic del metrónomo (`src/audio/guitar/metronome.ts`) no pasa por la reverberación, para sonar seco.
 
+## Pruebas
+
+- `npm test`: pruebas unitarias con Vitest (motor de audio, reconocimiento de acordes, guías, afinador y pantallas).
+- `npm run e2e`: pruebas de navegador con Playwright. La API se simula en `e2e/support/mockApi.ts`, así que no hace falta levantar el backend ni la base. La primera vez instala el navegador con `npx playwright install chromium`.
+
 ## Despliegue
 
 La imagen escucha en el puerto 8080 y nginx envía COOP y COEP. El despliegue a Cloud Run es el workflow manual `desplegar`. La versión 1.0.0 está en `CHANGELOG.md`.
