@@ -256,6 +256,32 @@ export class ApiClient {
     return guideFromPayload((await response.json()) as GuidePayload);
   }
 
+  async guideFromAudio(
+    file: File,
+    title: string,
+    artist: string,
+    melody: boolean,
+  ): Promise<GuideRecord> {
+    const headers = new Headers();
+    if (this.token) {
+      headers.set("Authorization", `Bearer ${this.token}`);
+    }
+    const body = new FormData();
+    body.append("file", file);
+    body.append("title", title);
+    body.append("artist", artist);
+    body.append("melody", String(melody));
+    const response = await this.fetchImpl(this.url("/guides/from-audio"), {
+      method: "POST",
+      headers,
+      body,
+    });
+    if (!response.ok) {
+      throw await this.readError(response);
+    }
+    return guideFromPayload((await response.json()) as GuidePayload);
+  }
+
   async listGuides(): Promise<GuideSummary[]> {
     const response = await this.request("/guides");
     const body = (await response.json()) as GuideSummaryPayload[];

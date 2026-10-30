@@ -49,6 +49,7 @@ En `/canciones` el usuario crea una guía de estudio de cualquier canción:
 
 - **Pegar acordes**: copia los acordes de un cancionero (LaCuerda, Cifra Club, Ultimate Guitar) y los pega con título, artista, tempo, compás, cejilla y rasgueo. La API ubica los acordes en compases y secciones y descarta la letra.
 - **Subir archivo**: ChordPro o MusicXML sin comprimir.
+- **Desde un audio**: una grabación propia; la API detecta pulso y acordes y deja un borrador para corregir. El audio no se guarda.
 
 `/canciones/:id` abre la guía:
 

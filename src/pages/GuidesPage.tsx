@@ -7,7 +7,7 @@ import { StatusMessage } from "../ui/StatusMessage";
 
 const apiUrl = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 
-type Mode = "pegar" | "archivo";
+type Mode = "pegar" | "archivo" | "audio";
 
 const EXAMPLE = `[Intro]
 G  D  Em  C
@@ -34,6 +34,9 @@ export function GuidesPage() {
   const [time, setTime] = useState("4/4");
   const [capo, setCapo] = useState("0");
   const [strum, setStrum] = useState("");
+  const [audio, setAudio] = useState<File | null>(null);
+  const [withMelody, setWithMelody] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
 
   const load = useCallback(async () => {
     if (!token) {
@@ -91,6 +94,30 @@ export function GuidesPage() {
     }
   }
 
+  async function analyze(event: FormEvent) {
+    event.preventDefault();
+    if (!audio) {
+      return;
+    }
+    setAnalyzing(true);
+    setState("idle");
+    setMessage("");
+    try {
+      const created = await new ApiClient(apiUrl, fetch, token).guideFromAudio(
+        audio,
+        title.trim(),
+        artist.trim(),
+        withMelody,
+      );
+      navigate(`/canciones/${created.id}`);
+    } catch (error) {
+      setState("error");
+      setMessage(error instanceof ApiError ? error.message : "No se pudo analizar el audio.");
+    } finally {
+      setAnalyzing(false);
+    }
+  }
+
   if (!token) {
     return (
       <main className="page">
@@ -133,6 +160,9 @@ export function GuidesPage() {
             onClick={() => setMode("archivo")}
           >
             Subir archivo
+          </button>
+          <button type="button" aria-pressed={mode === "audio"} onClick={() => setMode("audio")}>
+            Desde un audio
           </button>
         </div>
 
@@ -204,7 +234,7 @@ export function GuidesPage() {
               Crear la guía
             </button>
           </form>
-        ) : (
+        ) : mode === "archivo" ? (
           <div className="stack">
             <p>
               <strong>ChordPro</strong> (.cho, .chopro, .pro, .txt) o <strong>MusicXML</strong> sin
@@ -219,6 +249,53 @@ export function GuidesPage() {
               />
             </label>
           </div>
+        ) : (
+          <form className="stack" onSubmit={(event) => void analyze(event)}>
+            <p>
+              Sube una grabación tuya (WAV, MP3, OGG o FLAC, hasta 10 MB y 6 minutos). La app
+              detecta el pulso y los acordes y arma un borrador para que lo corrijas. Funciona mejor
+              con guitarra sola que con la canción completa mezclada. El audio no se guarda: se
+              borra al terminar el análisis.
+            </p>
+            <div className="form-grid">
+              <label>
+                Canción
+                <input value={title} onChange={(event) => setTitle(event.target.value)} required />
+              </label>
+              <label>
+                Artista
+                <input
+                  value={artist}
+                  onChange={(event) => setArtist(event.target.value)}
+                  required
+                />
+              </label>
+            </div>
+            <label className="button file-button">
+              {audio ? `Audio: ${audio.name}` : "Elegir audio"}
+              <input
+                type="file"
+                accept="audio/wav,audio/mpeg,audio/ogg,audio/flac,.wav,.mp3,.ogg,.flac"
+                onChange={(event) => setAudio(event.target.files?.[0] ?? null)}
+              />
+            </label>
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={withMelody}
+                onChange={(event) => setWithMelody(event.target.checked)}
+              />
+              Es una melodía o un punteo de una sola voz: detectar también las notas
+            </label>
+            {analyzing ? (
+              <p className="note" role="status">
+                Analizando el audio. Puede tardar hasta un minuto.
+              </p>
+            ) : null}
+            <button type="submit" disabled={!audio || analyzing}>
+              Analizar y crear la guía
+            </button>
+          </form>
         )}
 
         <details className="guide-help">
