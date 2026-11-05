@@ -148,6 +148,12 @@ export function PracticePage() {
     if (savingRef.current || !song || drillRef.current !== "progresion") {
       return;
     }
+    if (!useSession.getState().scoreTiming) {
+      setPhase("finished");
+      setVerdict("Este ritmo es un supuesto de la carta. Corrígelo en la guía antes de puntuar.");
+      setVerdictKind("espera");
+      return;
+    }
     savingRef.current = true;
     await stopRef.current?.();
     stopRef.current = null;
@@ -241,6 +247,11 @@ export function PracticePage() {
           detected: judgement.heard,
           deltaMs: Math.round(elapsed - chordAt(target.bar, target.beat, song.bpm)),
         });
+        if (!useSession.getState().scoreTiming) {
+          setVerdict("Escuchando. Este tramo no se puntúa: el ritmo de la guía es un supuesto.");
+          setVerdictKind("espera");
+          return;
+        }
         const result = judgementVerdict(judgement.heard, judgement.ok, target.symbol);
         setMarks((current) => ({ ...current, [index]: judgement.ok ? "bien" : "no" }));
         setVerdict(result.text);

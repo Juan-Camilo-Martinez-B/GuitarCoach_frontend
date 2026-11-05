@@ -4,7 +4,12 @@ import {
   appendSection,
   barsFromText,
   barsToText,
+  bpmFromUs,
+  ensureGrid,
   guideHits,
+  mergeChordBack,
+  prepareLesson,
+  pulseToSeconds,
   removeSection,
   replaceSectionChords,
   songFromGuide,
@@ -51,6 +56,91 @@ describe("guía de canción", () => {
       [8, 2, "abajo"],
       [10, 3, "arriba"],
     ]);
+  });
+
+  it("no cambia el rasgueo plano según el nombre de la sección", () => {
+    const guide = sample();
+    guide.sections = [
+      {
+        name: "Intro",
+        start: 0,
+        beats: 4,
+        strum: { directions: ["abajo", "abajo", "abajo", "abajo"], beats: [1, 1, 1, 1] },
+      },
+      {
+        name: "Chorus",
+        start: 4,
+        beats: 4,
+        strum: { directions: ["abajo", "abajo", "abajo", "abajo"], beats: [1, 1, 1, 1] },
+      },
+    ];
+    guide.chords = [
+      { start: 0, beats: 4, chord: "G" },
+      { start: 4, beats: 4, chord: "C" },
+    ];
+    const hits = guideHits(guide);
+    expect(hits.filter((hit) => hit.section === 0).map((hit) => hit.at)).toEqual([0, 1, 2, 3]);
+    expect(hits.filter((hit) => hit.section === 1).map((hit) => hit.at)).toEqual([4, 5, 6, 7]);
+    expect(hits.every((hit) => hit.origin === "inferido")).toBe(true);
+  });
+
+  it("no hereda el fraseo de otra canción y respeta el compás", () => {
+    const guide = sample();
+    guide.melody = [];
+    guide.sections = [
+      { name: "Verse", start: 0, beats: 12, strum: { directions: ["abajo"], beats: [4] } },
+    ];
+    guide.chords = ["Am", "G", "C"].map((chord, index) => ({
+      start: index * 4,
+      beats: 4,
+      chord,
+    }));
+    const grid = ensureGrid(guide);
+    expect(grid.chords.map((chord) => chord.chord)).toEqual(["Am", "G", "C"]);
+    expect(grid.capo).toBe(0);
+    const waltz = { ...sample(), beats_per_bar: 3, chords: [{ start: 0, beats: 3, chord: "Am" }] };
+    waltz.sections = [
+      { name: "Verse", start: 0, beats: 3, strum: { directions: ["abajo"], beats: [3] } },
+    ];
+    expect(ensureGrid(waltz).beats_per_bar).toBe(3);
+    expect(guideHits(waltz).map((hit) => hit.hold)).toEqual([3]);
+  });
+
+  it("conserva la razón de los huecos y del cambio de tempo a media velocidad", () => {
+    const tempo = [
+      { pulse: 0, usPerQuarter: 500_000 },
+      { pulse: 2, usPerQuarter: 1_000_000 },
+    ];
+    const slow = 0.5;
+    const first = pulseToSeconds(0.5, tempo, slow) - pulseToSeconds(0, tempo, slow);
+    const second = pulseToSeconds(2, tempo, slow) - pulseToSeconds(0.5, tempo, slow);
+    expect(second / first).toBeCloseTo(3, 5);
+    const before = pulseToSeconds(2, tempo, slow) - pulseToSeconds(0, tempo, slow);
+    const after = pulseToSeconds(4, tempo, slow) - pulseToSeconds(2, tempo, slow);
+    expect(after / before).toBeCloseTo(2, 5);
+    expect(pulseToSeconds(2, tempo, 1) / pulseToSeconds(2, tempo, slow)).toBeCloseTo(0.5, 5);
+  });
+
+  it("al fundir los dos últimos, el tercero dura dos compases", () => {
+    const guide = ensureGrid({
+      ...sample(),
+      melody: [],
+      sections: [
+        { name: "Canción", start: 0, beats: 12, strum: { directions: ["abajo"], beats: [4] } },
+      ],
+      chords: [
+        { start: 0, beats: 4, chord: "G" },
+        { start: 4, beats: 4, chord: "D" },
+        { start: 8, beats: 4, chord: "Em" },
+      ],
+    });
+    const merged = mergeChordBack(guide, 2);
+    expect(merged.chords.map((chord) => [chord.chord, chord.beats])).toEqual([
+      ["G", 4],
+      ["Em", 8],
+    ]);
+    expect(merged.events?.find((event) => event.pulse === 4)?.span).toBe(8);
+    expect(merged.events?.find((event) => event.pulse === 4)?.origin).toBe("editado");
   });
 
   it("toca solo la sección elegida, contando desde su inicio", () => {
@@ -148,5 +238,52 @@ describe("guía de canción", () => {
       { bar: 3, beat: 1, chord: "Am" },
       { bar: 3, beat: 3, chord: "C" },
     ]);
+  });
+
+  it("prepara una lección copiable cuando la carta no trae rasgueo ni melodía", () => {
+    const flat: SongGuide = {
+      ...sample(),
+      melody: [],
+      sections: [
+        {
+          name: "Intro",
+          start: 0,
+          beats: 4,
+          strum: { directions: ["abajo", "abajo", "abajo", "abajo"], beats: [1, 1, 1, 1] },
+        },
+      ],
+      chords: [{ start: 0, beats: 4, chord: "Am" }],
+      events: [
+        { pulse: 0, span: 1, direction: "abajo", contact: "golpe", velocity: 0.8, origin: "inferido" },
+        { pulse: 1, span: 1, direction: "abajo", contact: "golpe", velocity: 0.8, origin: "inferido" },
+        { pulse: 2, span: 1, direction: "abajo", contact: "golpe", velocity: 0.8, origin: "inferido" },
+        { pulse: 3, span: 1, direction: "abajo", contact: "golpe", velocity: 0.8, origin: "inferido" },
+      ],
+    };
+    const lesson = prepareLesson(flat);
+    expect(lesson.events?.map((event) => event.span)).toEqual([1, 1, 0.5, 0.5, 1]);
+    expect(lesson.events?.every((event) => event.origin === "leccion")).toBe(true);
+    expect(lesson.melody.map((note) => note.midi)).toEqual([69, 72]);
+    const again = prepareLesson(lesson);
+    expect(again.events).toEqual(lesson.events);
+    expect(again.melody).toEqual(lesson.melody);
+
+    const written = prepareLesson({
+      ...flat,
+      events: [
+        { pulse: 0, span: 2, direction: "abajo", contact: "golpe", velocity: 0.8, origin: "escrito" },
+        { pulse: 2, span: 2, direction: "arriba", contact: "golpe", velocity: 0.8, origin: "escrito" },
+      ],
+    });
+    expect(written.events?.map((event) => event.span)).toEqual([2, 2]);
+    expect(written.melody).toHaveLength(2);
+  });
+
+  it("lee el tempo que guarda el servidor en microsegundos por negra", () => {
+    const grid = ensureGrid({
+      ...sample(),
+      tempo: [{ pulse: 0, us_per_quarter: 750_000 }] as unknown as SongGuide["tempo"],
+    });
+    expect(bpmFromUs(grid.tempo![0].usPerQuarter)).toBe(80);
   });
 });

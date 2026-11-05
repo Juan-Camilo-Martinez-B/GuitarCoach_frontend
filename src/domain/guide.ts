@@ -1,4 +1,5 @@
 import type { StrumDirection, StrumPattern } from "./course";
+import { parseChord } from "./chart";
 import type { Song } from "./types";
 
 /** El tiempo se cuenta en pulsos de negra desde el inicio de la canción; el primero es 0. */
@@ -21,6 +22,25 @@ export interface GuideSection {
   strum: { directions: StrumDirection[]; beats: number[] };
 }
 
+/** El reloj a partir de este pulso. 500000 microsegundos son 120 BPM. */
+export interface TempoPoint {
+  pulse: number;
+  usPerQuarter: number;
+}
+
+export type StrumContact = "golpe" | "chuck" | "aire";
+export type EventOrigin = "escrito" | "inferido" | "editado" | "leccion";
+
+/** Un casillero de la mano derecha. El aire no ataca y no corta el acorde. */
+export interface StrumEvent {
+  pulse: number;
+  span: number;
+  direction: StrumDirection;
+  contact: StrumContact;
+  velocity: number;
+  origin: EventOrigin;
+}
+
 export interface SongGuide {
   version: number;
   title: string;
@@ -32,6 +52,8 @@ export interface SongGuide {
   sections: GuideSection[];
   chords: GuideChord[];
   melody: GuideNote[];
+  tempo?: TempoPoint[];
+  events?: StrumEvent[];
 }
 
 export type GuideStatus = "borrador" | "revisada";
@@ -59,7 +81,7 @@ export const SOURCE_LABEL: Record<string, string> = {
   editor: "Editor",
 };
 
-/** Un golpe de rasgueo de la guía, en pulsos. */
+/** Un golpe de rasgueo de la guía, en pulsos relativos al tramo que se toca. */
 export interface GuideHit {
   at: number;
   hold: number;
@@ -67,12 +89,270 @@ export interface GuideHit {
   section: number;
   hit: number;
   direction: StrumDirection;
+  /** Dinámica escrita, de 0 a 1. */
+  energy: number;
+  contact: StrumContact;
+  origin: EventOrigin;
+  event: number;
 }
 
 const EPSILON = 1e-6;
 
-export function sectionPattern(section: GuideSection, hint = ""): StrumPattern {
-  return { directions: section.strum.directions, beats: section.strum.beats, hint };
+export function usForBpm(bpm: number): number {
+  return Math.round(60_000_000 / bpm);
+}
+
+export function bpmFromUs(usPerQuarter: number): number {
+  return Math.round(60_000_000 / usPerQuarter);
+}
+
+/** Segundos de pared desde el pulso 0. La velocidad de práctica solo divide el reloj. */
+export function pulseToSeconds(pulse: number, tempo: TempoPoint[], rate: number): number {
+  const speed = rate > 0 ? rate : 1;
+  const points = [...(tempo.length ? tempo : [{ pulse: 0, usPerQuarter: 500_000 }])].sort(
+    (left, right) => left.pulse - right.pulse,
+  );
+  if (points[0].pulse > EPSILON) {
+    points.unshift({ pulse: 0, usPerQuarter: points[0].usPerQuarter });
+  }
+  const target = Math.max(0, pulse);
+  let seconds = 0;
+  let cursor = 0;
+  for (let index = 0; index < points.length && cursor < target - EPSILON; index += 1) {
+    const next = index + 1 < points.length ? points[index + 1].pulse : target;
+    const from = Math.max(cursor, points[index].pulse);
+    const to = Math.min(target, next);
+    if (to > from) {
+      seconds += ((to - from) * points[index].usPerQuarter) / 1_000_000 / speed;
+      cursor = to;
+    }
+  }
+  return seconds;
+}
+
+export function usAt(pulse: number, tempo: TempoPoint[]): number {
+  let us = tempo[0]?.usPerQuarter ?? usForBpm(80);
+  for (const point of tempo) {
+    if (point.pulse <= pulse + EPSILON) {
+      us = point.usPerQuarter;
+    }
+  }
+  return us;
+}
+
+function isBasicStrum(
+  strum: { directions: StrumDirection[]; beats: number[] },
+  beatsPerBar: number,
+): boolean {
+  const whole = Math.max(1, Math.round(beatsPerBar));
+  if (
+    strum.directions.length !== whole ||
+    strum.directions.some((direction) => direction !== "abajo")
+  ) {
+    return false;
+  }
+  const beat = beatsPerBar / whole;
+  return strum.beats.every((value) => Math.abs(value - beat) < 1e-3);
+}
+
+function expandPattern(
+  start: number,
+  beats: number,
+  beatsPerBar: number,
+  strum: { directions: StrumDirection[]; beats: number[] },
+  origin: EventOrigin,
+): StrumEvent[] {
+  const events: StrumEvent[] = [];
+  for (let bar = start; bar < start + beats - EPSILON; bar += beatsPerBar) {
+    let cursor = bar;
+    strum.beats.forEach((length, index) => {
+      if (cursor >= start + beats - EPSILON) {
+        return;
+      }
+      const span = Math.min(length, start + beats - cursor);
+      const direction = strum.directions[index] ?? "abajo";
+      events.push({
+        pulse: cursor,
+        span,
+        direction,
+        contact: direction === "apagado" ? "chuck" : "golpe",
+        velocity: 0.82,
+        origin,
+      });
+      cursor += length;
+    });
+  }
+  return events;
+}
+
+/** Rellena tempo y golpes si la guía guardada todavía no los trae. No cambia un patrón escrito. */
+export function ensureGrid(guide: SongGuide): SongGuide {
+  const raw = (guide.tempo ?? []) as Array<TempoPoint & { us_per_quarter?: number }>;
+  const tempo = raw.length
+    ? raw.map((point) => ({
+        pulse: point.pulse,
+        usPerQuarter: point.usPerQuarter || point.us_per_quarter || usForBpm(guide.bpm),
+      }))
+    : [{ pulse: 0, usPerQuarter: usForBpm(guide.bpm) }];
+  if (guide.events?.length) {
+    return { ...guide, tempo };
+  }
+  const events = guide.sections.flatMap((section) =>
+    expandPattern(
+      section.start,
+      section.beats,
+      guide.beats_per_bar,
+      section.strum,
+      isBasicStrum(section.strum, guide.beats_per_bar) ? "inferido" : "escrito",
+    ),
+  );
+  return { ...guide, version: 2, tempo, events };
+}
+
+/** Rasgueo que se puede copiar cuando la carta no trae el suyo. */
+export function lessonStrum(beatsPerBar: number): { directions: StrumDirection[]; beats: number[] } {
+  if (Math.abs(beatsPerBar - 4) < 0.05) {
+    return {
+      directions: ["abajo", "abajo", "arriba", "abajo", "arriba"],
+      beats: [1, 1, 0.5, 0.5, 1],
+    };
+  }
+  if (Math.abs(beatsPerBar - 3) < 0.05) {
+    return { directions: ["abajo", "arriba"], beats: [2, 1] };
+  }
+  if (Math.abs(beatsPerBar - 2) < 0.05) {
+    return { directions: ["abajo", "arriba"], beats: [1, 1] };
+  }
+  const whole = Math.max(1, Math.round(beatsPerBar));
+  return {
+    directions: Array.from({ length: whole }, () => "abajo"),
+    beats: Array.from({ length: whole }, () => beatsPerBar / whole),
+  };
+}
+
+export function lessonHint(beatsPerBar: number): string {
+  if (Math.abs(beatsPerBar - 4) < 0.05) {
+    return "Abajo, abajo, arriba, abajo, arriba. Los dos del medio duran medio tiempo. La melodía canta la fundamental y la tercera de cada acorde.";
+  }
+  if (Math.abs(beatsPerBar - 3) < 0.05) {
+    return "Abajo en el primer tiempo, largo, y arriba al final del compás. La melodía sigue el acorde.";
+  }
+  return "Un golpe por tiempo, con una melodía que sigue el acorde para que la copies.";
+}
+
+const STEP: Record<string, number> = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
+
+function lessonMelody(chords: GuideChord[]): GuideNote[] {
+  const notes: GuideNote[] = [];
+  let previous = 67;
+  for (const chord of chords) {
+    let root = 0;
+    let color = 4;
+    try {
+      const parsed = parseChord(chord.chord);
+      root = STEP[parsed.root[0]] ?? 0;
+      if (parsed.root[1] === "#") {
+        root += 1;
+      } else if (parsed.root[1] === "b") {
+        root -= 1;
+      }
+      const quality = parsed.quality;
+      if (quality.startsWith("m") && !quality.startsWith("maj")) {
+        color = 3;
+      } else if (quality.includes("sus2")) {
+        color = 2;
+      } else if (quality.includes("sus")) {
+        color = 5;
+      } else if (quality.includes("dim")) {
+        color = 3;
+      }
+    } catch {
+      root = 7;
+    }
+    let midi = 60 + root;
+    while (midi < previous - 5) {
+      midi += 12;
+    }
+    while (midi > previous + 6) {
+      midi -= 12;
+    }
+    midi = Math.min(81, Math.max(60, midi));
+    if (chord.beats >= 2) {
+      const half = chord.beats / 2;
+      notes.push({ start: chord.start, beats: half, midi });
+      notes.push({ start: chord.start + half, beats: chord.beats - half, midi: midi + color });
+      previous = midi + color;
+    } else {
+      notes.push({ start: chord.start, beats: chord.beats, midi });
+      previous = midi;
+    }
+  }
+  return notes;
+}
+
+function isUntaught(events: StrumEvent[], beatsPerBar: number): boolean {
+  if (events.length === 0) {
+    return true;
+  }
+  if (events.some((event) => event.origin !== "inferido")) {
+    return false;
+  }
+  const beat = beatsPerBar / Math.max(1, Math.round(beatsPerBar));
+  return events.every(
+    (event) =>
+      event.direction === "abajo" &&
+      event.contact === "golpe" &&
+      Math.abs(event.span - beat) < 0.05,
+  );
+}
+
+/**
+ * Deja la canción lista para copiarla. Si la carta no traía rasgueo, pone el de la lección
+ * y una melodía con las notas del acorde. Un rasgueo o una melodía ya escritos se quedan.
+ */
+export function prepareLesson(guide: SongGuide): SongGuide {
+  const grid = ensureGrid(guide);
+  const teach = isUntaught(grid.events!, grid.beats_per_bar);
+  const pattern = lessonStrum(grid.beats_per_bar);
+  const events = teach
+    ? grid.sections.flatMap((section) =>
+        expandPattern(section.start, section.beats, grid.beats_per_bar, pattern, "leccion"),
+      )
+    : grid.events!;
+  const sections = teach
+    ? grid.sections.map((section) => ({ ...section, strum: pattern }))
+    : grid.sections;
+  const melody = grid.melody.length > 0 ? grid.melody : lessonMelody(grid.chords);
+  return { ...grid, sections, events, melody };
+}
+
+export function hasInferredTiming(guide: SongGuide, from = 0, to = Infinity): boolean {
+  return ensureGrid(guide).events!.some(
+    (event) =>
+      event.origin === "inferido" && event.pulse >= from - EPSILON && event.pulse < to - EPSILON,
+  );
+}
+
+export function sectionPattern(guide: SongGuide, sectionIndex: number): StrumPattern {
+  const grid = ensureGrid(guide);
+  const section = grid.sections[sectionIndex] ?? grid.sections[0];
+  const barEnd = section.start + grid.beats_per_bar;
+  const hits = grid.events!.filter(
+    (event) =>
+      event.contact !== "aire" &&
+      event.pulse >= section.start - EPSILON &&
+      event.pulse < barEnd - EPSILON,
+  );
+  if (hits.length === 0) {
+    return { directions: ["abajo"], beats: [grid.beats_per_bar], hint: "" };
+  }
+  return {
+    directions: hits.map((event) => event.direction),
+    beats: hits.map((event) => event.span),
+    hint: hits.some((event) => event.origin === "inferido")
+      ? "Supuesto: un golpe por tiempo. Corrígelo para que sea el de la canción."
+      : "",
+  };
 }
 
 function chordAt(guide: SongGuide, beat: number): number {
@@ -85,44 +365,50 @@ function chordAt(guide: SongGuide, beat: number): number {
   return found;
 }
 
-/**
- * Golpes entre from y to: cada compás repite el rasgueo de su sección, y un cambio de acorde
- * a mitad del compás entra en el golpe que cae sobre él.
- */
+function sectionAt(guide: SongGuide, beat: number): number {
+  const index = guide.sections.findIndex(
+    (section) => section.start <= beat + EPSILON && beat < section.start + section.beats - EPSILON,
+  );
+  return index < 0 ? 0 : index;
+}
+
+/** Golpes entre from y to, leídos de la lista. El nombre de la sección no cambia el ritmo. */
 export function guideHits(guide: SongGuide, from = 0, to = totalBeats(guide)): GuideHit[] {
+  const grid = ensureGrid(guide);
   const hits: GuideHit[] = [];
-  guide.sections.forEach((section, sectionIndex) => {
-    const start = Math.max(section.start, from);
-    const end = Math.min(section.start + section.beats, to);
-    if (end <= start + EPSILON) {
+  grid.events!.forEach((event, eventIndex) => {
+    if (event.pulse < from - EPSILON || event.pulse >= to - EPSILON) {
       return;
     }
-    const barLength = guide.beats_per_bar;
-    const firstBar = Math.floor((start - section.start) / barLength + EPSILON);
-    for (let bar = firstBar; section.start + bar * barLength < end - EPSILON; bar += 1) {
-      let cursor = section.start + bar * barLength;
-      section.strum.beats.forEach((length, hit) => {
-        const at = cursor;
-        cursor += length;
-        if (at < start - EPSILON || at >= end - EPSILON) {
-          return;
-        }
-        const chord = chordAt(guide, at);
-        if (chord < 0) {
-          return;
-        }
-        hits.push({
-          at: at - from,
-          hold: Math.min(length, end - at),
-          chord,
-          section: sectionIndex,
-          hit,
-          direction: section.strum.directions[hit],
-        });
-      });
+    const chord = chordAt(grid, event.pulse);
+    if (chord < 0 && event.contact !== "aire") {
+      return;
     }
+    const section = sectionAt(grid, event.pulse);
+    const barStart =
+      grid.sections[section].start +
+      Math.floor((event.pulse - grid.sections[section].start) / grid.beats_per_bar + EPSILON) *
+        grid.beats_per_bar;
+    const hit = grid.events!.filter(
+      (item) =>
+        item.pulse >= barStart - EPSILON &&
+        item.pulse < barStart + grid.beats_per_bar - EPSILON &&
+        item.pulse <= event.pulse + EPSILON,
+    ).length;
+    hits.push({
+      at: event.pulse - from,
+      hold: event.span,
+      chord: Math.max(0, chord),
+      section,
+      hit: Math.max(0, hit - 1),
+      direction: event.direction,
+      energy: event.velocity,
+      contact: event.contact,
+      origin: event.origin,
+      event: eventIndex,
+    });
   });
-  return hits.sort((left, right) => left.at - right.at);
+  return hits;
 }
 
 export function totalBeats(guide: SongGuide): number {
@@ -130,6 +416,7 @@ export function totalBeats(guide: SongGuide): number {
     ...guide.chords.map((chord) => chord.start + chord.beats),
     ...guide.sections.map((section) => section.start + section.beats),
     ...guide.melody.map((note) => note.start + note.beats),
+    ...(guide.events ?? []).map((event) => event.pulse + event.span),
   ];
   return Math.max(0, ...ends);
 }
@@ -287,11 +574,14 @@ export function replaceSectionChords(
   const melody = guide.melody.map((note) =>
     note.start >= end - EPSILON ? { ...note, start: note.start + shift } : note,
   );
+  const grid = ensureGrid(guide);
   return {
-    ...guide,
+    ...grid,
     sections,
     melody,
     chords: [...kept, ...chords].sort((left, right) => left.start - right.start),
+    events: shiftPulses(grid.events!, end, shift),
+    tempo: shiftPulses(grid.tempo!, end, shift),
   };
 }
 
@@ -304,8 +594,9 @@ export function removeSection(guide: SongGuide, sectionIndex: number): SongGuide
   const end = section.start + section.beats;
   const inside = (start: number) => start >= section.start - EPSILON && start < end - EPSILON;
   const shift = (start: number) => (start >= end - EPSILON ? start - section.beats : start);
+  const grid = ensureGrid(guide);
   return {
-    ...guide,
+    ...grid,
     sections: guide.sections
       .filter((_, index) => index !== sectionIndex)
       .map((item) => ({ ...item, start: shift(item.start) })),
@@ -315,6 +606,22 @@ export function removeSection(guide: SongGuide, sectionIndex: number): SongGuide
     melody: guide.melody
       .filter((note) => !inside(note.start))
       .map((note) => ({ ...note, start: shift(note.start) })),
+    events: grid
+      .events!.filter((event) => !inside(event.pulse))
+      .map((event) => ({
+        ...event,
+        pulse: shift(event.pulse),
+      })),
+    tempo: [
+      grid.tempo![0],
+      ...grid
+        .tempo!.slice(1)
+        .filter((point) => !inside(point.pulse))
+        .map((point) => ({
+          ...point,
+          pulse: shift(point.pulse),
+        })),
+    ],
   };
 }
 
@@ -326,9 +633,195 @@ export function appendSection(guide: SongGuide, name: string): SongGuide {
     directions: ["abajo"],
     beats: [guide.beats_per_bar],
   };
+  const grid = ensureGrid(guide);
   return {
-    ...guide,
+    ...grid,
     sections: [...guide.sections, { name, start, beats: guide.beats_per_bar, strum }],
     chords: [...guide.chords, { start, beats: guide.beats_per_bar, chord: last }],
+    events: [
+      ...grid.events!,
+      ...expandPattern(start, guide.beats_per_bar, guide.beats_per_bar, strum, "editado"),
+    ],
   };
+}
+
+function shiftPulses<T extends { pulse: number }>(items: T[], end: number, shift: number): T[] {
+  if (Math.abs(shift) < EPSILON) {
+    return items;
+  }
+  return items.map((item) =>
+    item.pulse >= end - EPSILON ? { ...item, pulse: item.pulse + shift } : item,
+  );
+}
+
+/** El acorde posterior absorbe al anterior. Tres símbolos, al fundir los dos últimos, el tercero dura dos compases. */
+export function mergeChordBack(guide: SongGuide, index: number): SongGuide {
+  const grid = ensureGrid(guide);
+  const later = grid.chords[index];
+  const earlier = grid.chords[index - 1];
+  if (!later || !earlier) {
+    throw new Error("Elige el acorde que va a durar más.");
+  }
+  if (Math.abs(earlier.start + earlier.beats - later.start) > 0.05) {
+    throw new Error("Solo se funden acordes que se tocan.");
+  }
+  const start = earlier.start;
+  const beats = earlier.beats + later.beats;
+  const chords = grid.chords.filter((_, position) => position !== index - 1);
+  chords[index - 1] = { start, beats, chord: later.chord };
+  const events = grid.events!.flatMap((event) => {
+    if (
+      Math.abs(event.pulse - earlier.start) < EPSILON &&
+      Math.abs(event.span - earlier.beats) < 0.05
+    ) {
+      return [];
+    }
+    if (
+      Math.abs(event.pulse - later.start) < EPSILON &&
+      Math.abs(event.span - later.beats) < 0.05
+    ) {
+      return [{ ...event, pulse: start, span: beats, origin: "editado" as const }];
+    }
+    return [
+      event.pulse >= start - EPSILON && event.pulse < start + beats
+        ? { ...event, origin: "editado" as const }
+        : event,
+    ];
+  });
+  return { ...grid, chords, events };
+}
+
+/** Parte un acorde en dos del mismo símbolo. El primer tramo queda más corto. */
+export function splitChord(guide: SongGuide, index: number): SongGuide {
+  const grid = ensureGrid(guide);
+  const chord = grid.chords[index];
+  if (!chord || chord.beats < 0.5) {
+    throw new Error("Ese acorde ya es demasiado corto para partirlo.");
+  }
+  const half = chord.beats / 2;
+  const chords = [...grid.chords];
+  chords.splice(
+    index,
+    1,
+    { ...chord, beats: half },
+    { start: chord.start + half, beats: half, chord: chord.chord },
+  );
+  const events = grid.events!.flatMap((event) => {
+    if (
+      Math.abs(event.pulse - chord.start) < EPSILON &&
+      Math.abs(event.span - chord.beats) < 0.05
+    ) {
+      return [
+        { ...event, span: half, origin: "editado" as const },
+        { ...event, pulse: chord.start + half, span: half, origin: "editado" as const },
+      ];
+    }
+    return [event];
+  });
+  return { ...grid, chords, events };
+}
+
+/**
+ * Cambia el hueco de un golpe. Sin ancla, corre los golpes siguientes del tramo.
+ * Con ancla, solo ese hueco y el del golpe que viene detrás.
+ */
+export function nudgeGap(
+  guide: SongGuide,
+  eventIndex: number,
+  delta: number,
+  anchorRest: boolean,
+): SongGuide {
+  const grid = ensureGrid(guide);
+  const events = grid.events!.map((event) => ({ ...event }));
+  const current = events[eventIndex];
+  if (!current || current.span + delta < 0.25) {
+    throw new Error("El hueco mínimo es un cuarto de tiempo.");
+  }
+  const section = grid.sections[sectionAt(grid, current.pulse)];
+  const sectionEnd = section.start + section.beats;
+  current.span += delta;
+  current.origin = "editado";
+  if (anchorRest) {
+    const next = events[eventIndex + 1];
+    if (next && next.pulse < sectionEnd - EPSILON && next.span - delta >= 0.25) {
+      next.span -= delta;
+      next.origin = "editado";
+    }
+    return { ...grid, events };
+  }
+  for (let index = eventIndex + 1; index < events.length; index += 1) {
+    if (events[index].pulse >= sectionEnd - EPSILON) {
+      break;
+    }
+    events[index] = { ...events[index], pulse: events[index].pulse + delta, origin: "editado" };
+  }
+  return { ...grid, events };
+}
+
+export function addTempoPoint(guide: SongGuide, pulse: number, bpm: number): SongGuide {
+  const grid = ensureGrid(guide);
+  if (bpm < 20 || bpm > 300) {
+    throw new Error("El tempo va de 20 a 300 BPM.");
+  }
+  const usPerQuarter = usForBpm(bpm);
+  const tempo = grid.tempo!.filter((point) => Math.abs(point.pulse - pulse) > 0.05);
+  tempo.push({ pulse: Math.max(0, pulse), usPerQuarter });
+  tempo.sort((left, right) => left.pulse - right.pulse);
+  if (tempo[0].pulse > EPSILON) {
+    tempo.unshift({ pulse: 0, usPerQuarter });
+  }
+  const opening = bpmFromUs(tempo[0].usPerQuarter);
+  return { ...grid, tempo, bpm: opening };
+}
+
+/** Sustituye los golpes de una sección por los casilleros escritos y los marca como editados. */
+export function retileSection(guide: SongGuide, sectionIndex: number, text: string): SongGuide {
+  const grid = ensureGrid(guide);
+  const section = grid.sections[sectionIndex];
+  const slots = text.toUpperCase().replace(/\s+/g, "").split("");
+  if (slots.length === 0 || slots.some((slot) => !"DUX-".includes(slot)) || slots[0] === "-") {
+    throw new Error("Usa D (abajo), U (arriba), X (apagado) y - (silencio).");
+  }
+  const size = grid.beats_per_bar / slots.length;
+  const fresh: StrumEvent[] = [];
+  for (
+    let bar = section.start;
+    bar < section.start + section.beats - EPSILON;
+    bar += grid.beats_per_bar
+  ) {
+    slots.forEach((slot, index) => {
+      const pulse = bar + index * size;
+      if (pulse >= section.start + section.beats - EPSILON) {
+        return;
+      }
+      if (slot === "-") {
+        fresh.push({
+          pulse,
+          span: size,
+          direction: "abajo",
+          contact: "aire",
+          velocity: 0,
+          origin: "editado",
+        });
+        return;
+      }
+      const direction = slot === "U" ? "arriba" : slot === "X" ? "apagado" : "abajo";
+      fresh.push({
+        pulse,
+        span: size,
+        direction,
+        contact: direction === "apagado" ? "chuck" : "golpe",
+        velocity: 0.82,
+        origin: "editado",
+      });
+    });
+  }
+  const end = section.start + section.beats;
+  const events = [
+    ...grid.events!.filter(
+      (event) => event.pulse < section.start - EPSILON || event.pulse >= end - EPSILON,
+    ),
+    ...fresh,
+  ].sort((left, right) => left.pulse - right.pulse);
+  return { ...grid, events };
 }

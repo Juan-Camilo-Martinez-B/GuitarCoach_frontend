@@ -159,7 +159,7 @@ export function ReportPage() {
       ) : (
         <section className="panel stack">
           <p>
-            Este modo mira los módulos que ya marcaste en el curso. Con la clave de Gemini el texto
+            Este modo mira los módulos que ya marcaste en el curso. Con la clave de Groq el texto
             lo escribe el modelo; sin ella, el análisis local igual sirve para practicar.
           </p>
           <button type="button" onClick={() => void askCoach()}>

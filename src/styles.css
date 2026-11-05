@@ -1352,6 +1352,44 @@ code {
 
 .guide-new,
 .guide-editor,
+.guide-grid {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.event-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.event-chip {
+  display: grid;
+  gap: 0.1rem;
+  min-width: 4.4rem;
+  padding: 0.35rem 0.5rem;
+  border: 0;
+  border-radius: 0.6rem;
+  background: var(--pill-bg);
+  color: var(--ink);
+  cursor: default;
+}
+
+.event-chip.is-on {
+  box-shadow: inset 0 0 0 1px var(--brass);
+}
+
+.tempo-points {
+  display: grid;
+  gap: 0.45rem;
+  justify-items: start;
+}
+
+.tempo-points ul {
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
 .guide-player {
   display: grid;
   gap: 1rem;

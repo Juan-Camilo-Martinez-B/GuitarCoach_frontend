@@ -21,6 +21,9 @@ export interface StrumRequest {
   at: number;
   velocity: number;
   quarter: number;
+  /** Sin temblor: la rejilla de práctica suena igual en cada reproducción. */
+  steady?: boolean;
+  muted?: boolean;
 }
 
 // Hacia arriba la púa casi nunca llega a las cuerdas graves.
@@ -55,21 +58,24 @@ export function performStrum(request: StrumRequest, random: Random): NoteStrike[
   if (ordered.length === 0) {
     return [];
   }
-  const muted = request.direction === "apagado";
+  const muted = request.muted === true || request.direction === "apagado";
   const upward = request.direction === "arriba";
   const struck = upward ? ordered.slice(-UP_STROKE_STRINGS).reverse() : ordered;
   const base = request.velocity * (upward ? 0.78 : muted ? 0.9 : 1);
   const spread = strumSpread(request.velocity, request.quarter) * (upward ? 0.8 : muted ? 0.5 : 1);
   const step = struck.length > 1 ? spread / (struck.length - 1) : 0;
   const fade = upward ? 0.18 : 0.12;
+  const steady = request.steady === true;
 
   let cursor = request.at;
   return struck.map((note, index) => {
     if (index > 0) {
-      cursor += Math.max(0.002, step + jitter(random, step * 0.15));
+      cursor += steady
+        ? Math.max(0.002, step)
+        : Math.max(0.002, step + jitter(random, step * 0.15));
     }
     const position = struck.length > 1 ? index / (struck.length - 1) : 0;
-    const velocity = base * (1 - fade * position) * (1 + jitter(random, 0.06));
+    const velocity = base * (1 - fade * position) * (steady ? 1 : 1 + jitter(random, 0.06));
     return {
       string: note.string,
       midi: note.midi,

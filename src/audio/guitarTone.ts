@@ -6,7 +6,8 @@ import {
   type StrumHit,
   type StrumPattern,
 } from "../domain/course";
-import type { GuideHit, GuideNote } from "../domain/guide";
+import type { GuideHit, GuideNote, TempoPoint } from "../domain/guide";
+import { pulseToSeconds, usAt } from "../domain/guide";
 import { Metronome } from "./guitar/metronome";
 import { createOutputChain } from "./guitar/outputChain";
 import { jitter, seededRandom, type Random } from "./guitar/random";
@@ -25,6 +26,11 @@ const OPEN = [40, 45, 50, 55, 59, 64];
 // Margen para programar el primer golpe sin que llegue tarde.
 const LEAD = 0.06;
 const CHORD_RING = 4.5;
+const CHUCK_RING = 0.07;
+// Ventana corta: el deslizador se oye en el golpe siguiente.
+const LOOKAHEAD_SECONDS = 0.1;
+const PUMP_MS = 25;
+const LATE_SKIP_SECONDS = 1.5;
 const HIT_TIMING_JITTER = 0.006;
 const DETUNE_CENTS = 3;
 
@@ -40,6 +46,14 @@ const bank = new SampleBank(SAMPLE_ROOTS);
 let engine: Engine | null = null;
 let generation = 0;
 let seed = 1;
+let pumpTimer: number | undefined;
+
+function clearPump(): void {
+  if (pumpTimer !== undefined) {
+    window.clearTimeout(pumpTimer);
+    pumpTimer = undefined;
+  }
+}
 
 function audioEngine(): Engine {
   if (!engine) {
@@ -61,9 +75,9 @@ function freshRandom(): Random {
   return seededRandom(seed * 7919);
 }
 
-function stringNotes(chord: ChordShape): StringNote[] {
+function stringNotes(chord: ChordShape, capo = 0): StringNote[] {
   return chord.frets.flatMap((fret, string) =>
-    fret < 0 ? [] : [{ string, midi: OPEN[string] + fret }],
+    fret < 0 ? [] : [{ string, midi: OPEN[string] + fret + capo }],
   );
 }
 
@@ -75,8 +89,8 @@ function stringFor(midi: number): number {
   return OPEN.reduce((best, open, index) => (open <= midi ? index : best), 0);
 }
 
-export function shapeMidis(chord: ChordShape): number[] {
-  return stringNotes(chord).map((note) => note.midi);
+export function shapeMidis(chord: ChordShape, capo = 0): number[] {
+  return stringNotes(chord, capo).map((note) => note.midi);
 }
 
 export function warmNotes(midis: number[]): void {
@@ -89,6 +103,7 @@ export function warmShape(chord: ChordShape): void {
 
 export function stopGuitar(): void {
   generation += 1;
+  clearPump();
   engine?.voices.stopAll();
   engine?.lead.stopAll();
   engine?.metronome.stopAll();
@@ -97,6 +112,7 @@ export function stopGuitar(): void {
 /** Corta lo que estaba programado, pero deja sonar las cuerdas que ya vibran. */
 function cancelPending(): number {
   generation += 1;
+  clearPump();
   if (engine) {
     engine.voices.cancelAfter(engine.context.currentTime);
     engine.lead.cancelAfter(engine.context.currentTime);
@@ -119,23 +135,31 @@ function schedule(
   strikes: NoteStrike[],
   ring: number,
   random: Random,
+  steady = false,
 ): void {
   for (const strike of strikes) {
     const sample = samples.get(strike.midi);
     if (sample) {
       voices.strike({ ...strike, at: Math.max(strike.at, context.currentTime) }, sample, {
         ring,
-        detuneCents: jitter(random, DETUNE_CENTS),
+        detuneCents: steady ? 0 : jitter(random, DETUNE_CENTS),
       });
     }
   }
 }
 
 /** Espera las muestras y programa los rasgueos. Devuelve el retraso real, o null si se canceló. */
-async function performStrums(plans: (start: number) => StrumPlan[], chords: ChordShape[]) {
+async function performStrums(
+  plans: (start: number) => StrumPlan[],
+  chords: ChordShape[],
+  capo = 0,
+) {
   const ticket = cancelPending();
   const active = audioEngine();
-  const samples = await bank.loadAll(active.context, chords.flatMap(shapeMidis));
+  const samples = await bank.loadAll(
+    active.context,
+    chords.flatMap((chord) => shapeMidis(chord, capo)),
+  );
   if (ticket !== generation) {
     return null;
   }
@@ -148,7 +172,7 @@ async function performStrums(plans: (start: number) => StrumPlan[], chords: Chor
     }
     const strikes = performStrum(
       {
-        notes: stringNotes(plan.chord),
+        notes: stringNotes(plan.chord, capo),
         direction: plan.direction,
         at: plan.at,
         velocity: plan.velocity,
@@ -188,10 +212,11 @@ export function playChord(chord: ChordShape): void {
   );
 }
 
-export function playStrum(chord: ChordShape, direction: StrumDirection): void {
+export function playStrum(chord: ChordShape, direction: StrumDirection, capo = 0): void {
   void performStrums(
     (start) => [{ chord, direction, at: start, velocity: 0.85, quarter: 0.6 }],
     [chord],
+    capo,
   );
 }
 
@@ -267,12 +292,19 @@ export interface GuidePlayback {
   shapes: Array<ChordShape | null>;
   hits: GuideHit[];
   notes: GuideNote[];
-  bpm: number;
+  /** Mapa de tempo en pulsos absolutos de la canción. */
+  tempo: TempoPoint[];
+  /** 1 es el tempo escrito. 0,5 alarga todos los huecos el doble. */
+  rate: number;
+  /** Pulso absoluto donde empieza el tramo. Los golpes de hits están restados de aquí. */
+  from: number;
   beatsPerBar: number;
   /** Pulsos de clic antes del primer golpe. */
   countIn: number;
   metronome: boolean;
   length: number;
+  /** Trastes de cejilla: sube el sonido sin cambiar la forma que se ve. */
+  capo?: number;
 }
 
 /**
@@ -282,62 +314,142 @@ export interface GuidePlayback {
 export async function playGuide(playback: GuidePlayback): Promise<number | null> {
   const ticket = cancelPending();
   const active = audioEngine();
+  if (active.context.state !== "running") {
+    await active.context.resume();
+  }
+  const capo = playback.capo ?? 0;
   const present = playback.shapes.filter((shape): shape is ChordShape => shape !== null);
   const samples = await bank.loadAll(active.context, [
-    ...present.flatMap(shapeMidis),
-    ...playback.notes.map((note) => note.midi),
+    ...present.flatMap((shape) => shapeMidis(shape, capo)),
+    ...playback.notes.map((note) => note.midi + capo),
   ]);
   if (ticket !== generation) {
     return null;
   }
-  const quarter = 60 / playback.bpm;
+  const rate = playback.rate > 0 ? playback.rate : 1;
+  const rel = (pulse: number) =>
+    pulseToSeconds(playback.from + pulse, playback.tempo, rate) -
+    pulseToSeconds(playback.from, playback.tempo, rate);
+  const quarterAtStart = usAt(playback.from, playback.tempo) / 1_000_000 / rate;
   const random = freshRandom();
   const origin = active.context.currentTime + LEAD;
-  const start = origin + playback.countIn * quarter;
+  const start = origin + playback.countIn * quarterAtStart;
   const clicks = playback.countIn + (playback.metronome ? Math.ceil(playback.length) : 0);
-  for (let beat = 0; beat < clicks; beat += 1) {
-    const inSong = beat - playback.countIn;
-    const accent = inSong < 0 ? beat === 0 : inSong % playback.beatsPerBar === 0;
-    active.metronome.click(origin + beat * quarter, accent);
-  }
-  // Con melodía, el acompañamiento baja un poco para dejarla adelante.
   const backing = playback.notes.length > 0 ? 0.8 : 1;
-  for (const hit of playback.hits) {
-    const chord = playback.shapes[hit.chord];
-    if (!chord) {
-      continue;
+  const notes = [...playback.notes].sort((left, right) => left.start - right.start);
+  let beatIndex = 0;
+  let hitIndex = 0;
+  let noteIndex = 0;
+
+  const pump = () => {
+    if (ticket !== generation) {
+      return;
     }
-    const at = start + hit.at * quarter + (hit.at === 0 ? 0 : jitter(random, HIT_TIMING_JITTER));
-    for (const string of mutedStrings(chord)) {
-      active.voices.damp(string, at);
+    const now = active.context.currentTime;
+    const horizon = now + LOOKAHEAD_SECONDS;
+    let delta = 0;
+    let deltaSet = false;
+    const place = (at: number): number | null => {
+      if (at > horizon) {
+        return null;
+      }
+      if (at < now - LATE_SKIP_SECONDS) {
+        return null;
+      }
+      if (at < now) {
+        if (!deltaSet) {
+          delta = now - at;
+          deltaSet = true;
+        }
+        return at + delta;
+      }
+      return at;
+    };
+    while (beatIndex < clicks) {
+      const inSong = beatIndex - playback.countIn;
+      const at = inSong < 0 ? origin + beatIndex * quarterAtStart : start + rel(inSong);
+      if (at > horizon) {
+        break;
+      }
+      beatIndex += 1;
+      const when = place(at);
+      if (when === null) {
+        continue;
+      }
+      const accent = inSong < 0 ? beatIndex === 1 : inSong % playback.beatsPerBar === 0;
+      active.metronome.click(when, accent);
     }
-    const strikes = performStrum(
-      {
-        notes: stringNotes(chord),
-        direction: hit.direction,
-        at,
-        velocity: accentFor(hit.at) * backing * (1 + jitter(random, 0.05)),
-        quarter,
-      },
-      random,
-    );
-    schedule(active, samples, strikes, CHORD_RING, random);
-  }
-  for (const note of playback.notes) {
-    const sample = samples.get(note.midi);
-    if (sample) {
+    while (hitIndex < playback.hits.length) {
+      const hit = playback.hits[hitIndex];
+      const at = start + rel(hit.at);
+      if (at > horizon) {
+        break;
+      }
+      hitIndex += 1;
+      if (hit.contact === "aire") {
+        continue;
+      }
+      const when = place(at);
+      const chord = playback.shapes[hit.chord];
+      if (when === null || !chord) {
+        continue;
+      }
+      const chuck = hit.contact === "chuck" || hit.direction === "apagado";
+      if (!chuck) {
+        for (const string of mutedStrings(chord)) {
+          active.voices.damp(string, when);
+        }
+      }
+      schedule(
+        active,
+        samples,
+        performStrum(
+          {
+            notes: stringNotes(chord, capo),
+            direction: hit.direction,
+            at: when,
+            velocity: Math.min(1, hit.energy * backing),
+            quarter: usAt(playback.from + hit.at, playback.tempo) / 1_000_000,
+            steady: true,
+            muted: chuck,
+          },
+          random,
+        ),
+        chuck ? CHUCK_RING : CHORD_RING,
+        random,
+        true,
+      );
+    }
+    while (noteIndex < notes.length) {
+      const note = notes[noteIndex];
+      const at = start + rel(note.start);
+      if (at > horizon) {
+        break;
+      }
+      noteIndex += 1;
+      const when = place(at);
+      const sample = samples.get(note.midi + capo);
+      if (when === null || !sample) {
+        continue;
+      }
       active.lead.strike(
         {
-          string: stringFor(note.midi),
-          midi: note.midi,
-          at: start + note.start * quarter,
-          velocity: 0.78 * (1 + jitter(random, 0.04)),
+          string: stringFor(note.midi + capo),
+          midi: note.midi + capo,
+          at: when,
+          velocity: 0.78,
           muted: false,
         },
         sample,
-        { ring: note.beats * quarter + 0.05, detuneCents: jitter(random, DETUNE_CENTS) },
+        { ring: rel(note.start + note.beats) - rel(note.start) + 0.05, detuneCents: 0 },
       );
     }
-  }
+    const pending =
+      beatIndex < clicks || hitIndex < playback.hits.length || noteIndex < notes.length;
+    if (pending && ticket === generation) {
+      pumpTimer = window.setTimeout(pump, PUMP_MS);
+    }
+  };
+  pump();
   return start - active.context.currentTime;
 }

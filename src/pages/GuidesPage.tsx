@@ -22,6 +22,7 @@ Coro:
 
 export function GuidesPage() {
   const token = useSession((state) => state.token);
+  const notice = useSession((state) => state.notice);
   const navigate = useNavigate();
   const [guides, setGuides] = useState<GuideSummary[]>([]);
   const [mode, setMode] = useState<Mode>("pegar");
@@ -129,7 +130,7 @@ export function GuidesPage() {
           </p>
         </header>
         <section className="empty-stage">
-          <p>Tus guías se guardan en tu cuenta.</p>
+          <p>{notice ?? "Tus guías se guardan en tu cuenta."}</p>
           <Link className="button" to="/entrar">
             Iniciar sesión
           </Link>

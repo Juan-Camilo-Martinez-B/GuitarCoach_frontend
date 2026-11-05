@@ -14,6 +14,14 @@ import {
   type GuideSummaryPayload,
 } from "./guides";
 import { songFromPayload, type SongPayload } from "./songs";
+import { useSession } from "../store/session";
+
+export type JobNotice = {
+  id: string;
+  status: string;
+  song_id: number | null;
+  error: string | null;
+};
 
 export class ApiError extends Error {
   constructor(
@@ -84,6 +92,93 @@ export class ApiClient {
   async job(id: string): Promise<{ id: string; status: string; song_id: number | null }> {
     const response = await this.request(`/jobs/${id}`);
     return (await response.json()) as { id: string; status: string; song_id: number | null };
+  }
+
+  watchJob(id: string, onUpdate: (job: JobNotice) => void): () => void {
+    const token = this.token;
+    if (token === null) {
+      return () => undefined;
+    }
+    let stopped = false;
+    let polling = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let socket: WebSocket | undefined;
+    const stop = () => {
+      stopped = true;
+      if (timer !== undefined) {
+        clearTimeout(timer);
+      }
+      socket?.close();
+    };
+    const poll = () => {
+      if (polling || stopped) {
+        return;
+      }
+      polling = true;
+      const tick = () => {
+        if (stopped) {
+          return;
+        }
+        void this.job(id)
+          .then((current) => {
+            if (stopped) {
+              return;
+            }
+            onUpdate({ ...current, error: null });
+            if (current.status === "done" || current.status === "failed") {
+              stopped = true;
+              return;
+            }
+            timer = setTimeout(tick, 1500);
+          })
+          .catch(() => {
+            if (!stopped) {
+              timer = setTimeout(tick, 1500);
+            }
+          });
+      };
+      tick();
+    };
+    const Socket = globalThis.WebSocket;
+    if (typeof Socket !== "function") {
+      poll();
+      return stop;
+    }
+    try {
+      socket = new Socket(this.socketUrl(`/ws/jobs/${id}`));
+    } catch {
+      poll();
+      return stop;
+    }
+    socket.addEventListener("open", () => {
+      socket?.send(JSON.stringify({ token }));
+    });
+    socket.addEventListener("message", (event: MessageEvent<string>) => {
+      const body = JSON.parse(event.data) as Partial<JobNotice> & { error?: string };
+      if (typeof body.error === "string" && body.status === undefined) {
+        poll();
+        return;
+      }
+      if (typeof body.id !== "string" || typeof body.status !== "string") {
+        return;
+      }
+      onUpdate({
+        id: body.id,
+        status: body.status,
+        song_id: body.song_id ?? null,
+        error: body.error ?? null,
+      });
+      if (body.status === "done" || body.status === "failed") {
+        stopped = true;
+        socket?.close();
+      }
+    });
+    socket.addEventListener("error", () => {
+      if (!stopped) {
+        poll();
+      }
+    });
+    return stop;
   }
 
   async createReport(attemptId: string): Promise<ReportView> {
@@ -251,7 +346,7 @@ export class ApiClient {
       body,
     });
     if (!response.ok) {
-      throw await this.readError(response);
+      throw await this.rejected(response);
     }
     return guideFromPayload((await response.json()) as GuidePayload);
   }
@@ -277,7 +372,7 @@ export class ApiClient {
       body,
     });
     if (!response.ok) {
-      throw await this.readError(response);
+      throw await this.rejected(response);
     }
     return guideFromPayload((await response.json()) as GuidePayload);
   }
@@ -305,6 +400,10 @@ export class ApiClient {
     return `${this.baseUrl}${path}`;
   }
 
+  private socketUrl(path: string): string {
+    return `${this.baseUrl.replace(/^http/, "ws")}${path}`;
+  }
+
   private async request(path: string, init: RequestInit = {}): Promise<Response> {
     const headers = new Headers(init.headers);
     headers.set("Content-Type", "application/json");
@@ -313,9 +412,16 @@ export class ApiClient {
     }
     const response = await this.fetchImpl(this.url(path), { ...init, headers });
     if (!response.ok) {
-      throw await this.readError(response);
+      throw await this.rejected(response);
     }
     return response;
+  }
+
+  private async rejected(response: Response): Promise<ApiError> {
+    if (response.status === 401 && this.token) {
+      useSession.getState().forgetExpiredSession();
+    }
+    return this.readError(response);
   }
 
   private async readError(response: Response): Promise<ApiError> {

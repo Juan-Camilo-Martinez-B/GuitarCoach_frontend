@@ -6,6 +6,7 @@ import {
   barsToText,
   removeSection,
   replaceSectionChords,
+  retileSection,
   strumFromText,
   strumToText,
   type GuideStatus,
@@ -29,6 +30,7 @@ function draftsOf(guide: SongGuide): SectionDraft[] {
 /** Aplica los textos de cada sección en orden: si una cambia de largo, corre a las siguientes. */
 export function applyDrafts(guide: SongGuide, drafts: SectionDraft[]): SongGuide {
   let next = guide;
+  const original = draftsOf(guide);
   drafts.forEach((draft, index) => {
     const section = next.sections[index];
     const label = draft.name.trim() || `Sección ${index + 1}`;
@@ -47,6 +49,9 @@ export function applyDrafts(guide: SongGuide, drafts: SectionDraft[]): SongGuide
           position === index ? { ...item, name: label, strum } : item,
         ),
       };
+      if (draft.strum.trim() !== original[index].strum || draft.bars !== original[index].bars) {
+        next = retileSection(next, index, draft.strum);
+      }
     } catch (error) {
       throw new Error(`${label}: ${error instanceof Error ? error.message : "no se pudo leer."}`);
     }
