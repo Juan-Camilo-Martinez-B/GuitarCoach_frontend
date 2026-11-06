@@ -127,7 +127,7 @@ export async function mockApi(page: Page): Promise<ApiState> {
         ejercicios: ["Cambia de Re a Mim diez veces."],
         plan_semanal: ["Lunes: cambios lentos."],
         consejos_tecnica: ["Anticipa el dedo de la cuerda 5."],
-        model: "local",
+        model: "analisis-local",
       });
     }
     if (path === "/guides" && method === "GET") {

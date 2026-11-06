@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { AttemptSummary, ReportView } from "../src/domain/types";
 import { ProgressChart } from "../src/ui/ProgressChart";
-import { ReportPanel } from "../src/ui/ReportPanel";
+import { ReportPanel, reportOrigin } from "../src/ui/ReportPanel";
 import { StatusMessage } from "../src/ui/StatusMessage";
 
 const report: ReportView = {
@@ -43,5 +43,17 @@ describe("informe en pantalla", () => {
     expect(renderToStaticMarkup(<StatusMessage state="loading" />)).toContain("Cargando");
     expect(renderToStaticMarkup(<ProgressChart points={points} />)).toContain("polyline");
     expect(renderToStaticMarkup(<ProgressChart points={[]} />)).toContain("no hay intentos");
+  });
+});
+
+describe("origen del informe", () => {
+  it("avisa cuando el informe no lo escribió la IA", () => {
+    expect(reportOrigin("analisis-local")).toContain("la IA no estuvo disponible");
+  });
+
+  it("atribuye a la IA el informe del tutor, el del modelo y el reutilizado", () => {
+    for (const model of ["tutor", "openai/gpt-oss-120b", "cache"]) {
+      expect(reportOrigin(model)).toContain("Escrito por la IA");
+    }
   });
 });
