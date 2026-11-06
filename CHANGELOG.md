@@ -2,6 +2,10 @@
 
 ## Sin publicar
 
+- Nueva escucha de la guitarra: detecta cada ataque y decide el acorde con ventanas que crecen, restando lo que ya sonaba, para seguir canciones rápidas. Se pidió el micrófono sin los filtros de voz del navegador.
+- Práctica: nueva modalidad Notas y melodía, cuenta de entrada, cursor a tempo, velocidad y metrónomo en el intento, y compases que no sean de 4 tiempos.
+- Los logros y la racha se guardan en la cuenta y vuelven al entrar desde otro equipo.
+- El informe muestra también el plan de la semana y los consejos de técnica.
 - Rediseño para principiantes: modo claro y oscuro renovados, navegación en cuatro secciones con subnavegación y barra inferior en celular.
 - Ruta guiada, guitarra interactiva, glosario emergente, página de diccionario, logros y racha guardados en el navegador.
 - Mis canciones explica el flujo en tres pasos, enlaza sitios con archivos gratuitos de Guitar Pro y acepta arrastrar el archivo.

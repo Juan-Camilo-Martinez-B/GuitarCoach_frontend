@@ -52,7 +52,7 @@ En escritorio, la barra superior muestra las secciones y una segunda fila, las p
 - **Ruta guiada** (`src/ui/GuidedPath.tsx`): cinco pasos en Inicio (afinar, primer acorde, tocar, subir una canción y revisar el avance). El botón principal siempre lleva al siguiente paso pendiente.
 - **Glosario** (`src/domain/glossary.ts`, `src/ui/Term.tsx`): las palabras con subrayado punteado se explican al tocarlas. `GlossaryText` las marca también en los textos del curso. La página `/glosario` reúne todas, con búsqueda.
 - **Guitarra interactiva** (`src/ui/GuitarExplorer.tsx`): cada casilla del mástil suena y dice qué nota es; los botones de acordes muestran dónde van los dedos.
-- **Logros y racha** (`src/domain/journey.ts`, `src/store/journey.ts`): días seguidos practicando e insignias. Se guardan solo en `localStorage`: no van al servidor y no se comparten entre dispositivos.
+- **Logros y racha** (`src/domain/journey.ts`, `src/store/journey.ts`): días seguidos practicando e insignias. Sin sesión viven en `localStorage`. Al entrar se juntan con los de la cuenta (`/me/journey`), que desde ahí manda; al salir se borran de este navegador y vuelven al entrar de nuevo.
 
 ### Dónde conseguir archivos de Guitar Pro
 
@@ -61,6 +61,31 @@ Mis canciones enlaza a sitios externos, en `src/domain/tabSources.ts`: [GProTab]
 ### Temas
 
 Hay modo claro, oscuro y según el sistema. Cada color de `src/styles.css` declara sus dos valores con `light-dark()`, y el tema solo cambia `color-scheme`. Los diagramas de acordes y la partitura se quedan sobre papel claro en ambos modos para que se lean bien.
+
+## Cómo escucha la app
+
+Todo ocurre en el navegador: el audio no sale de él. `src/audio/listening/guitarListener.ts` recibe las muestras del micrófono con su posición en el reloj de audio, así cada ataque conserva su instante aunque la pantalla se trabe.
+
+1. **Micrófono sin filtros de voz** (`GUITAR_MIC`). La supresión de ruido y el control de ganancia se comen el ataque y el final de cada nota.
+2. **Ataques.** Flujo espectral comprimido y umbral que se adapta a lo reciente. Mira cada 12 ms con acordes y cada 6 ms con notas. Soltar las cuerdas también sacude el espectro, pero baja el volumen: eso no cuenta como ataque.
+3. **Acordes.** Desde cada ataque se analizan ventanas de 46, 93 y 186 ms mientras no llegue otro; así un cambio rápido se decide con lo que alcanzó a sonar y uno lento gana precisión. Se usan picos del espectro con frecuencia interpolada, se corrige la afinación común de la guitarra y se resta lo que ya sonaba antes del ataque, porque el acorde anterior sigue vibrando.
+4. **Notas.** YIN con ventana de 35 ms. Los ligados y slides no tienen ataque: se reconocen porque la altura salta y se queda.
+5. **Seguimiento** (`scoreFollower.ts`). Cada ataque cuenta para el tramo más cercano de la carta y las ventanas de un tramo se suman en un solo veredicto. La melodía se sigue en orden, sin importar la octava, y tolera notas saltadas.
+
+### Qué tan rápido entiende
+
+`e2e/listening.spec.ts` toca las muestras reales de guitarra de la app directamente al analizador, con ruido de fondo:
+
+| Prueba                             | Tramo más corto | Resultado        |
+| ---------------------------------- | --------------- | ---------------- |
+| Acordes a 72, 120, 180 y 240 BPM   | 250 ms          | 12 de 12         |
+| Un acorde cada corchea a 240 BPM   | 125 ms          | 11 de 12         |
+| Acordes equivocados a 200 BPM      | 300 ms          | 0 de 8 aceptados |
+| Melodía en corcheas a 90 y 160 BPM | 188 ms          | 100 %            |
+| Melodía en semicorcheas a 200 BPM  | 75 ms           | 85 %             |
+| Melodía en semicorcheas a 300 BPM  | 50 ms           | 70 %             |
+
+**Límites.** Estas cifras no pasan por un micrófono ni por una sala: una guitarra real con un micrófono de portátil dará resultados menores. Reconoce un acorde o una nota a la vez; no separa una melodía tocada sobre un acorde. El metrónomo durante el intento se oye en el micrófono, así que va mejor con audífonos.
 
 ## Sonido de la guitarra
 
@@ -128,6 +153,7 @@ El plugin `@coderline/alphatab-vite` (en `vite.config.ts`) copia las fuentes de 
 ## Pruebas
 
 - `npm test`: pruebas unitarias con Vitest (motor de audio, reconocimiento de acordes, guías, afinador y pantallas).
+- `npm run e2e:live`: recorrido completo contra la API real, con un micrófono simulado que toca un acorde. Necesita `uvicorn` en el puerto 8000 con `CORS_ORIGINS` que incluya `http://localhost:4173`.
 - `npm run e2e`: pruebas de navegador con Playwright. La API se simula en `e2e/support/mockApi.ts`, así que no hace falta levantar el backend ni la base. La primera vez instala el navegador con `npx playwright install chromium`.
 
 ## Despliegue
