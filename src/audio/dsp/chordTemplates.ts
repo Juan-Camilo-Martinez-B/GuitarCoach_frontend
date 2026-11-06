@@ -91,22 +91,3 @@ export function bestChord(frame: Float32Array, candidates: string[]): string | n
   }
   return winner;
 }
-
-export function vote(frames: Array<string | null>): string | null {
-  const counts = new Map<string, number>();
-  for (const frame of frames) {
-    if (!frame) {
-      continue;
-    }
-    counts.set(frame, (counts.get(frame) ?? 0) + 1);
-  }
-  let winner: string | null = null;
-  let max = 0;
-  for (const [chord, count] of counts) {
-    if (count > max) {
-      winner = chord;
-      max = count;
-    }
-  }
-  return winner;
-}

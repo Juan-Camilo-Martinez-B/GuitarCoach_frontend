@@ -1,16 +1,31 @@
-import { chordFrame, judgeChord, type ChordJudgement } from "../dsp/chordRecognizer";
 import { rms } from "../dsp/gate";
 import { noteFromFrequency, type NoteReading } from "../dsp/noteMath";
 import { yinPitch } from "../dsp/yin";
-import { pushSamples } from "../worklets/capture.worklet";
+import { Metronome } from "../guitar/metronome";
+import {
+  GuitarListener,
+  type ListenerEvent,
+  type ListenerOptions,
+} from "../listening/guitarListener";
+import { pushSamples, type CapturedChunk } from "../worklets/capture.worklet";
 
 const WINDOW = 4096;
 const SILENCE_RMS = 0.012;
 const MIN_HZ = 60;
 const MAX_HZ = 1200;
 const STABLE_FRAMES = 5;
-// Más muestras para separar notas graves vecinas (unos 5 Hz por banda a 44.1 kHz).
-const CHORD_WINDOW = 8192;
+
+/**
+ * Pensados para la voz, estos filtros del navegador se comen el ataque y el final de cada nota:
+ * el supresor de ruido toma la guitarra por ruido y el control de ganancia aplana los rasgueos.
+ */
+export const GUITAR_MIC: MediaStreamConstraints = {
+  audio: {
+    echoCancellation: false,
+    noiseSuppression: false,
+    autoGainControl: false,
+  },
+};
 
 export function frequencyFromChunk(samples: Float32Array, sampleRate: number): number | null {
   if (rms(samples) < SILENCE_RMS) {
@@ -33,24 +48,20 @@ function median(values: number[]): number {
   return sorted[Math.floor(sorted.length / 2)] ?? 0;
 }
 
-/** Abre la captura del micrófono y entrega tramos de `windowSize` muestras. */
+interface Capture {
+  context: AudioContext;
+  stop: () => void;
+}
+
+/** Abre la captura del micrófono y entrega cada bloque con su posición en el reloj de audio. */
 async function startCapture(
   stream: MediaStream,
-  windowSize: number,
-  onChunk: (samples: Float32Array, sampleRate: number) => void,
-): Promise<() => void> {
-  const context = new AudioContext();
+  onChunk: (samples: Float32Array, frame: number, sampleRate: number) => void,
+): Promise<Capture> {
+  const context = new AudioContext({ latencyHint: "interactive" });
   const source = context.createMediaStreamSource(stream);
   const mute = context.createGain();
   mute.gain.value = 0;
-  const pending: number[] = [];
-
-  const consume = (input: ArrayLike<number>) => {
-    const chunk = pushSamples(pending, input, windowSize);
-    if (chunk) {
-      onChunk(chunk, context.sampleRate);
-    }
-  };
 
   let worklet: AudioWorkletNode | null = null;
   let processor: ScriptProcessorNode | null = null;
@@ -59,15 +70,19 @@ async function startCapture(
       new URL("../worklets/capture.worklet.ts", import.meta.url),
     );
     worklet = new AudioWorkletNode(context, "capture");
-    worklet.port.onmessage = (event: MessageEvent<Float32Array>) => {
-      consume(event.data);
+    worklet.port.onmessage = (event: MessageEvent<CapturedChunk>) => {
+      onChunk(event.data.samples, event.data.frame, context.sampleRate);
     };
     source.connect(worklet);
     worklet.connect(mute);
   } catch {
-    processor = context.createScriptProcessor(4096, 1, 1);
+    processor = context.createScriptProcessor(1024, 1, 1);
     processor.onaudioprocess = (event) => {
-      consume(event.inputBuffer.getChannelData(0));
+      onChunk(
+        event.inputBuffer.getChannelData(0).slice(),
+        Math.round(event.playbackTime * context.sampleRate),
+        context.sampleRate,
+      );
     };
     source.connect(processor);
     processor.connect(mute);
@@ -77,24 +92,32 @@ async function startCapture(
     await context.resume();
   }
 
-  return () => {
-    worklet?.disconnect();
-    processor?.disconnect();
-    source.disconnect();
-    mute.disconnect();
-    for (const track of stream.getTracks()) {
-      track.stop();
-    }
-    void context.close();
+  return {
+    context,
+    stop: () => {
+      worklet?.disconnect();
+      processor?.disconnect();
+      source.disconnect();
+      mute.disconnect();
+      for (const track of stream.getTracks()) {
+        track.stop();
+      }
+      void context.close();
+    },
   };
 }
 
-export function startPitchMonitor(
+export async function startPitchMonitor(
   stream: MediaStream,
   onReading: (reading: NoteReading | null) => void,
 ): Promise<() => void> {
   const history: number[] = [];
-  return startCapture(stream, WINDOW, (chunk, sampleRate) => {
+  const pending: number[] = [];
+  const capture = await startCapture(stream, (samples, _frame, sampleRate) => {
+    const chunk = pushSamples(pending, samples, WINDOW);
+    if (!chunk) {
+      return;
+    }
     const frequency = frequencyFromChunk(chunk, sampleRate);
     if (frequency === null) {
       history.length = 0;
@@ -107,24 +130,42 @@ export function startPitchMonitor(
     }
     onReading(noteFromFrequency(median(history)));
   });
+  return capture.stop;
 }
 
-/**
- * Escucha acordes: cada tramo se compara con el acorde que pide la pantalla en ese momento.
- * `expected` se lee en cada tramo, así la carta puede avanzar sin reabrir el micrófono.
- */
-export function startChordMonitor(
+export interface ListeningSession {
+  /** Segundos del reloj de audio: el mismo que marcan los eventos del oyente. */
+  now: () => number;
+  /** Lo que tarda un sonido en ir del altavoz a la app pasando por el micrófono. */
+  latency: number;
+  click: (at: number, accent: boolean) => void;
+  stop: () => void;
+}
+
+function roundTripLatency(context: AudioContext, stream: MediaStream): number {
+  const input = stream.getAudioTracks()[0]?.getSettings?.() as { latency?: number } | undefined;
+  return (context.outputLatency || 0) + (input?.latency ?? context.baseLatency ?? 0);
+}
+
+/** Abre la escucha continua de la guitarra. */
+export async function startGuitarListener(
   stream: MediaStream,
-  expected: () => { symbol: string; candidates: string[] } | null,
-  onJudgement: (judgement: ChordJudgement | null) => void,
-): Promise<() => void> {
-  return startCapture(stream, CHORD_WINDOW, (chunk, sampleRate) => {
-    const target = expected();
-    const frame = target ? chordFrame(chunk, sampleRate) : null;
-    if (!target || !frame) {
-      onJudgement(null);
-      return;
-    }
-    onJudgement(judgeChord(frame, target.symbol, target.candidates));
+  options: ListenerOptions,
+  onEvent: (event: ListenerEvent) => void,
+): Promise<ListeningSession> {
+  let listener: GuitarListener | null = null;
+  const capture = await startCapture(stream, (samples, frame, sampleRate) => {
+    listener ??= new GuitarListener(sampleRate, onEvent, options);
+    listener.feed(samples, frame);
   });
+  const metronome = new Metronome(capture.context, capture.context.destination);
+  return {
+    now: () => capture.context.currentTime,
+    latency: roundTripLatency(capture.context, stream),
+    click: (at, accent) => metronome.click(at, accent),
+    stop: () => {
+      metronome.stopAll();
+      capture.stop();
+    },
+  };
 }

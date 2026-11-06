@@ -2693,3 +2693,41 @@ button.drill-card {
 .page .auth-switch:not(.guide-view) {
   border-radius: 1.5rem;
 }
+
+.drill-picker {
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+}
+
+.note-track {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0.4rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.note-chip {
+  min-width: 3rem;
+  padding: 0.35rem 0.6rem;
+  border-radius: 0.65rem;
+  background: var(--panel-sunken);
+  font-weight: 700;
+  text-align: center;
+}
+
+.note-chip.is-now {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.note-chip.is-bien {
+  background: var(--good-wash);
+  color: var(--good);
+}
+
+.note-chip.is-no,
+.note-chip.is-saltada {
+  background: var(--bad-wash);
+  color: var(--bad);
+}

@@ -26,6 +26,8 @@ interface SessionState {
   practicePattern: StrumPattern | null;
   /** False cuando los golpes de la guía son un supuesto: no se guarda la puntuación. */
   scoreTiming: boolean;
+  /** Notas de la guía que abrió la práctica, en MIDI; null si no trae melodía escrita. */
+  practiceMelody: number[] | null;
   setToken: (token: string | null) => void;
   forgetExpiredSession: () => void;
   setLatencyOffsetMs: (value: number) => void;
@@ -35,6 +37,7 @@ interface SessionState {
   setLastAttemptId: (attemptId: string | null) => void;
   setPracticePattern: (pattern: StrumPattern | null) => void;
   setScoreTiming: (scoreTiming: boolean) => void;
+  setPracticeMelody: (melody: number[] | null) => void;
 }
 
 export const useSession = create<SessionState>((set) => ({
@@ -47,6 +50,7 @@ export const useSession = create<SessionState>((set) => ({
   lastAttemptId: null,
   practicePattern: null,
   scoreTiming: true,
+  practiceMelody: null,
   setToken: (token) => {
     if (typeof sessionStorage !== "undefined") {
       if (token) {
@@ -67,10 +71,11 @@ export const useSession = create<SessionState>((set) => ({
     });
   },
   setLatencyOffsetMs: (latencyOffsetMs) => set({ latencyOffsetMs }),
-  setSong: (song) => set({ song }),
+  setSong: (song) => set({ song, practiceMelody: null }),
   setStudy: (study) => set({ study }),
   setTeachingMode: (teachingMode) => set({ teachingMode }),
   setLastAttemptId: (lastAttemptId) => set({ lastAttemptId }),
   setPracticePattern: (practicePattern) => set({ practicePattern }),
   setScoreTiming: (scoreTiming) => set({ scoreTiming }),
+  setPracticeMelody: (practiceMelody) => set({ practiceMelody }),
 }));

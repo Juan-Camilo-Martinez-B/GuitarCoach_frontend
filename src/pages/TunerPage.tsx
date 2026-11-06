@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { AudioEngine, tunerStatusLabel, type EngineState } from "../audio/engine/AudioEngine";
 import { playMidi, warmNotes } from "../audio/guitarTone";
 import { needleX } from "../audio/tuner/channel";
-import { startPitchMonitor } from "../audio/tuner/listen";
+import { GUITAR_MIC, startPitchMonitor } from "../audio/tuner/listen";
 import {
   GUITAR_STRINGS,
   nearestString,
@@ -84,7 +84,7 @@ export function TunerPage() {
     show(null);
     const engine = new AudioEngine({
       request: async () => {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const stream = await navigator.mediaDevices.getUserMedia(GUITAR_MIC);
         if (!(stream instanceof MediaStream)) {
           return;
         }
