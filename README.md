@@ -89,7 +89,7 @@ Todo ocurre en el navegador: el audio no sale de él. `src/audio/listening/guita
 
 ## Sonido de la guitarra
 
-El tempo, el ciclo de acordes, el rasgueo y la melodía de la lección de Lamento boliviano salen de la transcripción en Guitar Pro de Alberto Serna Orejuela. Solo se guardan esos datos en `src/domain/`; el archivo `.gp4` no se distribuye.
+El tempo, el ciclo de acordes, el rasgueo y la melodía de la lección de Lamento boliviano salen de la transcripción en Guitar Pro de Alberto Serna Orejuela, transportada de Mi menor a La menor para enseñarla con acordes abiertos. Solo se guardan esos datos en `src/domain/`; el archivo `.gp4` no se distribuye.
 
 Los acordes, rasgueos y notas se tocan con muestras reales de guitarra de acero (FluidR3 GM, CC BY 3.0), alojadas en `public/samples/guitar-steel`. Si falta un archivo, se pide al CDN de midi-js-soundfonts. El motor vive en `src/audio/guitar/`:
 

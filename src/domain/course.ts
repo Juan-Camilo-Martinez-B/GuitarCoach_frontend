@@ -104,7 +104,7 @@ const OUTLINE: Array<Omit<LessonView, "status" | "locked">> = [
     summary: "La armonía de la canción, en su tempo, sin la letra.",
     points: [
       "Va a 120 BPM, en compás de cuatro. Acordes, rasgueo y melodía se repiten en toda la canción.",
-      "El ciclo dura ocho compases: dos de Mim, dos de Sim, dos de Lam, uno de Mim y uno de Si7. Sim lleva cejilla en el traste 2.",
+      "Está en La menor para que todos los acordes sean abiertos. El ciclo dura ocho compases: dos de Lam, dos de Mim, dos de Rem, uno de Lam y uno de Mi7.",
       "En el rasgueo, el primer y el tercer golpe duran un tiempo; los otros cuatro, medio tiempo.",
       "La melodía es un arpegio de corcheas que sigue los acordes. No incluye la letra.",
     ],
@@ -205,11 +205,11 @@ export const SONG_GUIDES: Record<string, SongGuide> = {
     pattern: STRUM_LAMENTO,
     melody: LAMENTO_MELODY,
     slots: [
-      { symbol: "Em", beats: 8, note: "E" },
-      { symbol: "Bm", beats: 8, note: "B" },
       { symbol: "Am", beats: 8, note: "A" },
-      { symbol: "Em", beats: 4, note: "E" },
-      { symbol: "B7", beats: 4, note: "B" },
+      { symbol: "Em", beats: 8, note: "E" },
+      { symbol: "Dm", beats: 8, note: "D" },
+      { symbol: "Am", beats: 4, note: "A" },
+      { symbol: "E7", beats: 4, note: "E" },
     ],
   },
 };

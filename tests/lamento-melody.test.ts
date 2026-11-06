@@ -7,22 +7,22 @@ import { LAMENTO_MELODY } from "../src/domain/lamentoMelody";
 const guide = SONG_GUIDES["cancion-lamento"];
 
 const CYCLE_CHORD_TONES: Record<string, number[]> = {
-  Em: [4, 7, 11],
-  Bm: [11, 2, 6],
   Am: [9, 0, 4],
-  // Si7: Si, Re#, Fa# y La.
-  B7: [11, 3, 6, 9],
+  Em: [4, 7, 11],
+  Dm: [2, 5, 9],
+  // Mi7: Mi, Sol#, Si y Re.
+  E7: [4, 8, 11, 2],
 };
 
 describe("Lamento boliviano", () => {
-  it("usa el tempo y el ciclo de ocho compases de la transcripción", () => {
+  it("usa el tempo de la transcripción y su ciclo de ocho compases en La menor", () => {
     expect(guide.bpm).toBe(120);
     expect(guide.slots.map((slot) => [slot.symbol, slot.beats])).toEqual([
-      ["Em", 8],
-      ["Bm", 8],
       ["Am", 8],
-      ["Em", 4],
-      ["B7", 4],
+      ["Em", 8],
+      ["Dm", 8],
+      ["Am", 4],
+      ["E7", 4],
     ]);
   });
 
@@ -30,10 +30,18 @@ describe("Lamento boliviano", () => {
     expect(guide.pattern.beats.reduce((sum, beats) => sum + beats, 0)).toBe(4);
   });
 
-  it("toca Sim con cejilla, como en la transcripción", () => {
-    const shape = localShape("Bm");
-    expect(shape?.barre).toBe(2);
-    expect(shape && shapeMidis(shape)).toEqual([42, 47, 54, 59, 62, 66]);
+  it("solo pide acordes abiertos, sin cejilla", () => {
+    for (const slot of guide.slots) {
+      expect(localShape(slot.symbol)?.barre ?? null).toBeNull();
+    }
+    const seventh = localShape("E7");
+    expect(seventh && shapeMidis(seventh)).toEqual([40, 47, 50, 56, 59, 64]);
+  });
+
+  it("deja la melodía al alcance de los primeros trastes", () => {
+    const pitches = LAMENTO_MELODY.map((note) => note.midi);
+    expect(Math.min(...pitches)).toBeGreaterThanOrEqual(48);
+    expect(Math.max(...pitches)).toBeLessThanOrEqual(59);
   });
 
   it("escribe la melodía en corcheas durante todo el ciclo", () => {
