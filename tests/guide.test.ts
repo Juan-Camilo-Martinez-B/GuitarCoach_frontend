@@ -8,7 +8,9 @@ import {
   ensureGrid,
   guideHits,
   mergeChordBack,
+  hasWrittenMelody,
   prepareLesson,
+  soundingMelody,
   pulseToSeconds,
   removeSection,
   replaceSectionChords,
@@ -254,10 +256,38 @@ describe("guía de canción", () => {
       ],
       chords: [{ start: 0, beats: 4, chord: "Am" }],
       events: [
-        { pulse: 0, span: 1, direction: "abajo", contact: "golpe", velocity: 0.8, origin: "inferido" },
-        { pulse: 1, span: 1, direction: "abajo", contact: "golpe", velocity: 0.8, origin: "inferido" },
-        { pulse: 2, span: 1, direction: "abajo", contact: "golpe", velocity: 0.8, origin: "inferido" },
-        { pulse: 3, span: 1, direction: "abajo", contact: "golpe", velocity: 0.8, origin: "inferido" },
+        {
+          pulse: 0,
+          span: 1,
+          direction: "abajo",
+          contact: "golpe",
+          velocity: 0.8,
+          origin: "inferido",
+        },
+        {
+          pulse: 1,
+          span: 1,
+          direction: "abajo",
+          contact: "golpe",
+          velocity: 0.8,
+          origin: "inferido",
+        },
+        {
+          pulse: 2,
+          span: 1,
+          direction: "abajo",
+          contact: "golpe",
+          velocity: 0.8,
+          origin: "inferido",
+        },
+        {
+          pulse: 3,
+          span: 1,
+          direction: "abajo",
+          contact: "golpe",
+          velocity: 0.8,
+          origin: "inferido",
+        },
       ],
     };
     const lesson = prepareLesson(flat);
@@ -271,12 +301,42 @@ describe("guía de canción", () => {
     const written = prepareLesson({
       ...flat,
       events: [
-        { pulse: 0, span: 2, direction: "abajo", contact: "golpe", velocity: 0.8, origin: "escrito" },
-        { pulse: 2, span: 2, direction: "arriba", contact: "golpe", velocity: 0.8, origin: "escrito" },
+        {
+          pulse: 0,
+          span: 2,
+          direction: "abajo",
+          contact: "golpe",
+          velocity: 0.8,
+          origin: "escrito",
+        },
+        {
+          pulse: 2,
+          span: 2,
+          direction: "arriba",
+          contact: "golpe",
+          velocity: 0.8,
+          origin: "escrito",
+        },
       ],
     });
     expect(written.events?.map((event) => event.span)).toEqual([2, 2]);
     expect(written.melody).toHaveLength(2);
+  });
+
+  it("distingue la melodía escrita de la guía armónica, también la guardada", () => {
+    const chords = [{ start: 0, beats: 4, chord: "Am" }];
+    const empty: SongGuide = { ...sample(), chords, melody: [], capo: 2 };
+    expect(hasWrittenMelody(empty)).toBe(false);
+    // La guía armónica sale de las formas: con cejilla 2 suena dos semitonos arriba.
+    expect(soundingMelody(empty).map((note) => note.midi)).toEqual([71, 74]);
+
+    const stored = { ...empty, melody: prepareLesson(empty).melody };
+    expect(hasWrittenMelody(stored)).toBe(false);
+
+    const real = { ...empty, melody: [{ start: 0, beats: 1, midi: 64 }] };
+    expect(hasWrittenMelody(real)).toBe(true);
+    // Las notas escritas ya son la altura que suena: la cejilla no se suma otra vez.
+    expect(soundingMelody(real).map((note) => note.midi)).toEqual([64]);
   });
 
   it("lee el tempo que guarda el servidor en microsegundos por negra", () => {

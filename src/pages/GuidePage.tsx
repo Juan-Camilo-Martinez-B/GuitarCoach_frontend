@@ -9,11 +9,13 @@ import {
   ensureGrid,
   guideHits,
   hasInferredTiming,
+  hasWrittenMelody,
   lessonHint,
   prepareLesson,
   pulseToSeconds,
   sectionPattern,
   songFromGuide,
+  soundingMelody,
   SOURCE_LABEL,
   totalBeats,
   usAt,
@@ -73,7 +75,7 @@ export function GuidePage() {
   const [rate, setRate] = useState(1);
   const [countIn, setCountIn] = useState(true);
   const [metronome, setMetronome] = useState(false);
-  const [withMelody, setWithMelody] = useState(true);
+  const [withMelody, setWithMelody] = useState(false);
   const [loop, setLoop] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [now, setNow] = useState<Now | null>(null);
@@ -86,6 +88,13 @@ export function GuidePage() {
 
   const source = record?.guide ?? null;
   const guide = useMemo(() => (source ? prepareLesson(ensureGrid(source)) : null), [source]);
+  const writtenMelody = useMemo(() => (source ? hasWrittenMelody(source) : false), [source]);
+  const melody = useMemo(() => (guide ? soundingMelody(guide) : []), [guide]);
+
+  // La guía armónica no es la canción: solo suena si el alumno la pide.
+  useEffect(() => {
+    setWithMelody(writtenMelody);
+  }, [writtenMelody]);
 
   const load = useCallback(async () => {
     if (!token) {
@@ -150,7 +159,7 @@ export function GuidePage() {
     const to = section ? section.start + section.beats : totalBeats(guide);
     const hits = guideHits(guide, from, to);
     const notes = withMelody
-      ? guide.melody
+      ? melody
           .filter((note) => note.start >= from - 1e-6 && note.start < to - 1e-6)
           .map((note) => ({ ...note, start: note.start - from }))
       : [];
@@ -202,7 +211,7 @@ export function GuidePage() {
         setNow(null);
       },
     );
-  }, [countIn, guide, metronome, range, rate, shapes, withMelody]);
+  }, [countIn, guide, melody, metronome, range, rate, shapes, withMelody]);
 
   async function save(next: SongGuide, status: GuideStatus) {
     setState("loading");
@@ -294,6 +303,12 @@ export function GuidePage() {
         {guide.events?.some((event) => event.origin === "leccion") ? (
           <p className="lead">{lessonHint(guide.beats_per_bar)} Escucha y luego tócalo igual.</p>
         ) : null}
+        {writtenMelody ? null : (
+          <p className="lead">
+            Esta guía solo trae acordes, no las notas de la canción. Para oír la melodía real, sube
+            la tablatura en MusicXML.
+          </p>
+        )}
         <span className={`guide-status is-${record.status}`}>
           {record.status === "revisada" ? "Revisada" : "Borrador: revisa los acordes"}
         </span>
@@ -372,14 +387,21 @@ export function GuidePage() {
                 />
                 Repetir
               </label>
-              {guide.melody.length > 0 ? (
-                <label className="check">
+              {melody.length > 0 ? (
+                <label
+                  className="check"
+                  title={
+                    writtenMelody
+                      ? "Las notas que trae el archivo."
+                      : "Fundamental y tercera de cada acorde. No es la melodía de la canción."
+                  }
+                >
                   <input
                     type="checkbox"
                     checked={withMelody}
                     onChange={(event) => setWithMelody(event.target.checked)}
                   />
-                  Melodía
+                  {writtenMelody ? "Melodía" : "Guía armónica"}
                 </label>
               ) : null}
             </div>

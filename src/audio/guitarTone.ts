@@ -33,6 +33,12 @@ const PUMP_MS = 25;
 const LATE_SKIP_SECONDS = 1.5;
 const HIT_TIMING_JITTER = 0.006;
 const DETUNE_CENTS = 3;
+// Con melodía, el rasgueo baja y la melodía sube: si no, seis cuerdas la tapan.
+const BACKING_UNDER_MELODY = 0.6;
+const MELODY_VELOCITY = 0.95;
+// Melodía y acompañamiento en lugares distintos del estéreo, como dos guitarras.
+const LEAD_PAN = 0.3;
+const BACKING_PAN = -0.15;
 
 interface Engine {
   context: AudioContext;
@@ -55,14 +61,21 @@ function clearPump(): void {
   }
 }
 
+function panned(context: AudioContext, output: AudioNode, pan: number): AudioNode {
+  const panner = context.createStereoPanner();
+  panner.pan.value = pan;
+  panner.connect(output);
+  return panner;
+}
+
 function audioEngine(): Engine {
   if (!engine) {
     const context = new AudioContext({ latencyHint: "interactive" });
     const output = createOutputChain(context);
     engine = {
       context,
-      voices: new StringVoices(context, output),
-      lead: new StringVoices(context, output),
+      voices: new StringVoices(context, panned(context, output, BACKING_PAN)),
+      lead: new StringVoices(context, panned(context, output, LEAD_PAN)),
       metronome: new Metronome(context, context.destination),
     };
   }
@@ -291,6 +304,7 @@ export interface GuidePlayback {
   /** Forma de cada acorde de la guía, en el mismo orden; null si no se encontró. */
   shapes: Array<ChordShape | null>;
   hits: GuideHit[];
+  /** Alturas que suenan: la cejilla ya va incluida, no se vuelve a sumar. */
   notes: GuideNote[];
   /** Mapa de tempo en pulsos absolutos de la canción. */
   tempo: TempoPoint[];
@@ -321,7 +335,7 @@ export async function playGuide(playback: GuidePlayback): Promise<number | null>
   const present = playback.shapes.filter((shape): shape is ChordShape => shape !== null);
   const samples = await bank.loadAll(active.context, [
     ...present.flatMap((shape) => shapeMidis(shape, capo)),
-    ...playback.notes.map((note) => note.midi + capo),
+    ...playback.notes.map((note) => note.midi),
   ]);
   if (ticket !== generation) {
     return null;
@@ -335,7 +349,7 @@ export async function playGuide(playback: GuidePlayback): Promise<number | null>
   const origin = active.context.currentTime + LEAD;
   const start = origin + playback.countIn * quarterAtStart;
   const clicks = playback.countIn + (playback.metronome ? Math.ceil(playback.length) : 0);
-  const backing = playback.notes.length > 0 ? 0.8 : 1;
+  const backing = playback.notes.length > 0 ? BACKING_UNDER_MELODY : 1;
   const notes = [...playback.notes].sort((left, right) => left.start - right.start);
   let beatIndex = 0;
   let hitIndex = 0;
@@ -428,16 +442,16 @@ export async function playGuide(playback: GuidePlayback): Promise<number | null>
       }
       noteIndex += 1;
       const when = place(at);
-      const sample = samples.get(note.midi + capo);
+      const sample = samples.get(note.midi);
       if (when === null || !sample) {
         continue;
       }
       active.lead.strike(
         {
-          string: stringFor(note.midi + capo),
-          midi: note.midi + capo,
+          string: stringFor(note.midi),
+          midi: note.midi,
           at: when,
-          velocity: 0.78,
+          velocity: MELODY_VELOCITY,
           muted: false,
         },
         sample,
