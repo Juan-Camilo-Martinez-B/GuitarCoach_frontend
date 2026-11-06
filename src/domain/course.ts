@@ -1,3 +1,5 @@
+import type { GuideNote } from "./guide";
+import { LAMENTO_MELODY } from "./lamentoMelody";
 import type { Curriculum, LessonView } from "./types";
 
 const OUTLINE: Array<Omit<LessonView, "status" | "locked">> = [
@@ -101,10 +103,10 @@ const OUTLINE: Array<Omit<LessonView, "status" | "locked">> = [
     title: "Canción: Lamento boliviano",
     summary: "La armonía de la canción, en su tempo, sin la letra.",
     points: [
-      "Va a 124 BPM, el tempo de la canción, en compás de cuatro.",
-      "La armonía es Mim, Sim7, Lam y, en el último compás, Mim y Si7. Sim7 va sin cejilla.",
-      "El primer rasgueo dura un tiempo; los cinco siguientes, medio tiempo.",
-      "No incluye la letra. Practica Mim, Sim7, Lam, Mim y Si7.",
+      "Va a 120 BPM, en compás de cuatro. Acordes, rasgueo y melodía se repiten en toda la canción.",
+      "El ciclo dura ocho compases: dos de Mim, dos de Sim, dos de Lam, uno de Mim y uno de Si7. Sim lleva cejilla en el traste 2.",
+      "En el rasgueo, el primer y el tercer golpe duran un tiempo; los otros cuatro, medio tiempo.",
+      "La melodía es un arpegio de corcheas que sigue los acordes. No incluye la letra.",
     ],
     songTitle: "Lamento boliviano",
   },
@@ -121,8 +123,8 @@ export interface StrumPattern {
 
 export const STRUM_LAMENTO = {
   directions: ["abajo", "abajo", "arriba", "arriba", "abajo", "arriba"],
-  beats: [1, 0.5, 0.5, 0.5, 0.5, 0.5],
-  hint: "El primer ↓ dura un tiempo. Los otros cinco duran medio tiempo.",
+  beats: [1, 0.5, 1, 0.5, 0.5, 0.5],
+  hint: "El primer ↓ y el primer ↑ duran un tiempo. Los otros golpes duran medio tiempo.",
 } as const satisfies StrumPattern;
 
 export const STRUM_BASICO = {
@@ -159,6 +161,11 @@ export function patternForTitle(title: string): StrumPattern {
   return STRUM_BASICO;
 }
 
+/** Las notas de la melodía de una canción del curso; vacío si no trae una escrita. */
+export function melodyForTitle(title: string): number[] {
+  return title === "Lamento boliviano" ? LAMENTO_MELODY.map((note) => note.midi) : [];
+}
+
 export interface SongSlot {
   symbol: string;
   beats: number;
@@ -169,6 +176,7 @@ export interface SongGuide {
   bpm: number;
   slots: SongSlot[];
   pattern: StrumPattern;
+  melody?: readonly GuideNote[];
 }
 
 export const SONG_GUIDES: Record<string, SongGuide> = {
@@ -193,14 +201,15 @@ export const SONG_GUIDES: Record<string, SongGuide> = {
     ],
   },
   "cancion-lamento": {
-    bpm: 124,
+    bpm: 120,
     pattern: STRUM_LAMENTO,
+    melody: LAMENTO_MELODY,
     slots: [
+      { symbol: "Em", beats: 8, note: "E" },
+      { symbol: "Bm", beats: 8, note: "B" },
+      { symbol: "Am", beats: 8, note: "A" },
       { symbol: "Em", beats: 4, note: "E" },
-      { symbol: "Bm7", beats: 4, note: "B" },
-      { symbol: "Am", beats: 4, note: "A" },
-      { symbol: "Em", beats: 2, note: "E" },
-      { symbol: "B7", beats: 2, note: "B" },
+      { symbol: "B7", beats: 4, note: "B" },
     ],
   },
 };

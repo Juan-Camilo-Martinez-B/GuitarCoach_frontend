@@ -23,7 +23,14 @@ const NOTES = ["Do", "Re", "Mi", "Fa", "Sol", "La", "Si"];
 export function LessonDesk({ lessonId }: { lessonId: string }) {
   const guide = SONG_GUIDES[lessonId];
   if (guide) {
-    return <SongLesson bpm={guide.bpm} slots={guide.slots} pattern={guide.pattern} />;
+    return (
+      <SongLesson
+        bpm={guide.bpm}
+        slots={guide.slots}
+        pattern={guide.pattern}
+        melody={guide.melody}
+      />
+    );
   }
   if (lessonId === "cuerdas") {
     return <StringBoard />;

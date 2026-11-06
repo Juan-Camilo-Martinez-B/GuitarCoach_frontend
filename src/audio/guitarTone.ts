@@ -7,7 +7,7 @@ import {
   type StrumPattern,
 } from "../domain/course";
 import type { GuideHit, GuideNote, TempoPoint } from "../domain/guide";
-import { pulseToSeconds, usAt } from "../domain/guide";
+import { pulseToSeconds, usAt, usForBpm } from "../domain/guide";
 import { Metronome } from "./guitar/metronome";
 import { createOutputChain } from "./guitar/outputChain";
 import { jitter, seededRandom, type Random } from "./guitar/random";
@@ -294,6 +294,23 @@ export async function playSlots(
     present,
   );
   return shifted(hits, delay);
+}
+
+/** Toca solo una melodía. Resuelve con los segundos que faltan para la primera nota. */
+export function playMelody(notes: readonly GuideNote[], bpm: number): Promise<number | null> {
+  const last = notes.at(-1);
+  return playGuide({
+    shapes: [],
+    hits: [],
+    notes: [...notes],
+    tempo: [{ pulse: 0, usPerQuarter: usForBpm(bpm) }],
+    rate: 1,
+    from: 0,
+    beatsPerBar: 4,
+    countIn: 0,
+    metronome: false,
+    length: last ? last.start + last.beats : 0,
+  });
 }
 
 export function patternDuration(bpm: number): number {

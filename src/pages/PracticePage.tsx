@@ -14,7 +14,7 @@ import {
 } from "../audio/listening/scoreFollower";
 import { GUITAR_MIC, startGuitarListener, type ListeningSession } from "../audio/tuner/listen";
 import { shapeFor, spanishName } from "../chords/shapes";
-import { patternForTitle } from "../domain/course";
+import { melodyForTitle, patternForTitle } from "../domain/course";
 import type { Song, SongStudy, StudyStep } from "../domain/types";
 import { layoutChart } from "../game/ChartRenderer";
 import { judgementVerdict } from "../game/chordVerdict";
@@ -121,6 +121,7 @@ export function PracticePage() {
   const beatsPerBar = song?.beatsPerBar ?? 4;
   const practicePattern = useSession((state) => state.practicePattern);
   const pattern = practicePattern ?? patternForTitle(song?.title ?? "");
+  const melody = practiceMelody ?? melodyForTitle(song?.title ?? "");
   symbolRef.current = steps[picked]?.symbol ?? steps[0]?.symbol ?? "";
   const songSymbols = [...new Set(steps.map((item) => item.symbol))];
   const symbolsRef = useRef<string[]>([]);
@@ -213,7 +214,7 @@ export function PracticePage() {
       return;
     }
     record("tocar");
-    const expected = practiceMelody ?? [];
+    const expected = melody;
     const follower = expected.length > 0 ? new MelodyFollower(expected) : null;
     setRecentNotes([]);
     setMelodyPosition(0);
@@ -457,7 +458,6 @@ export function PracticePage() {
   // Las funciones declaradas no heredan el descarte de song nulo de más arriba.
   const bpm = song.bpm;
   const playing = phase === "playing";
-  const melody = practiceMelody ?? [];
   const melodyStart = Math.max(0, melodyPosition - 4);
 
   function hearChart() {
