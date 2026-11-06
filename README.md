@@ -30,6 +30,38 @@ flowchart LR
   dsp -->|telemetria| api
 ```
 
+## Experiencia para principiantes
+
+La interfaz está pensada para quien nunca ha tocado: se aprende escuchando e imitando, y cada palabra técnica se puede explicar.
+
+### Navegación
+
+Cuatro secciones (`src/layout/navigation.ts`) reemplazan los siete enlaces anteriores:
+
+| Sección     | Páginas                         | Para qué sirve                    |
+| ----------- | ------------------------------- | --------------------------------- |
+| Inicio      | Inicio                          | Ruta guiada y guitarra para tocar |
+| Aprender    | Curso paso a paso, Diccionario  | Entender antes de tocar           |
+| Practicar   | Afinador, Biblioteca, Práctica  | Afinar, elegir y tocar, en orden  |
+| Mi progreso | Mis canciones, Informe y logros | Lo propio y cómo vas              |
+
+En escritorio, la barra superior muestra las secciones y una segunda fila, las páginas de la sección abierta. Desde 860 px hacia abajo, las secciones pasan a una barra inferior fija, al alcance del pulgar.
+
+### Ayudas
+
+- **Ruta guiada** (`src/ui/GuidedPath.tsx`): cinco pasos en Inicio (afinar, primer acorde, tocar, subir una canción y revisar el avance). El botón principal siempre lleva al siguiente paso pendiente.
+- **Glosario** (`src/domain/glossary.ts`, `src/ui/Term.tsx`): las palabras con subrayado punteado se explican al tocarlas. `GlossaryText` las marca también en los textos del curso. La página `/glosario` reúne todas, con búsqueda.
+- **Guitarra interactiva** (`src/ui/GuitarExplorer.tsx`): cada casilla del mástil suena y dice qué nota es; los botones de acordes muestran dónde van los dedos.
+- **Logros y racha** (`src/domain/journey.ts`, `src/store/journey.ts`): días seguidos practicando e insignias. Se guardan solo en `localStorage`: no van al servidor y no se comparten entre dispositivos.
+
+### Dónde conseguir archivos de Guitar Pro
+
+Mis canciones enlaza a sitios externos, en `src/domain/tabSources.ts`: [GProTab](https://gprotab.net/), [Ultimate Guitar](https://www.ultimate-guitar.com/explore?type%5B%5D=Pro) y el [Free Rock Pack](https://www.guitar-pro.com/blog/p/11970-free-rock-guitar-pro-pack) oficial. Son páginas de terceros y sus condiciones pueden cambiar; conviene revisar esa lista de vez en cuando.
+
+### Temas
+
+Hay modo claro, oscuro y según el sistema. Cada color de `src/styles.css` declara sus dos valores con `light-dark()`, y el tema solo cambia `color-scheme`. Los diagramas de acordes y la partitura se quedan sobre papel claro en ambos modos para que se lean bien.
+
 ## Sonido de la guitarra
 
 Los acordes, rasgueos y notas se tocan con muestras reales de guitarra de acero (FluidR3 GM, CC BY 3.0), alojadas en `public/samples/guitar-steel`. Si falta un archivo, se pide al CDN de midi-js-soundfonts. El motor vive en `src/audio/guitar/`:
@@ -60,7 +92,7 @@ La lógica pura vive en `src/domain/guide.ts` (golpes por sección, notación de
 
 ## Tablaturas: la canción nota por nota
 
-Un cifrado dice qué acorde va, pero no qué notas tocó el guitarrista. Para que el alumno oiga la canción tal como es, en **Mis canciones → Tablatura o archivo** se sube la tablatura del cover. Queda guardada como una canción más, y su guía la toca con [alphaTab](https://alphatab.net) (MPL-2.0).
+Un cifrado dice qué acorde va, pero no qué notas tocó el guitarrista. Para que el alumno oiga la canción tal como es, en **Mis canciones** se sube la tablatura del cover. Queda guardada como una canción más, y su guía la toca con [alphaTab](https://alphatab.net) (MPL-2.0).
 
 **Al subirla**
 

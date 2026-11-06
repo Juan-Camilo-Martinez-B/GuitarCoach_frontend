@@ -2,6 +2,12 @@
 
 ## Sin publicar
 
+- Rediseño para principiantes: modo claro y oscuro renovados, navegación en cuatro secciones con subnavegación y barra inferior en celular.
+- Ruta guiada, guitarra interactiva, glosario emergente, página de diccionario, logros y racha guardados en el navegador.
+- Mis canciones explica el flujo en tres pasos, enlaza sitios con archivos gratuitos de Guitar Pro y acepta arrastrar el archivo.
+- Afinador con medidor visual y marca de cuerdas afinadas; la aguja solo aparece cuando hay una lectura.
+- Práctica, Biblioteca, Guía e Informe con los botones ordenados por importancia. La Biblioteca ya permite practicar aunque falle el estudio de la canción.
+- Espacio y Enter ya no inician la práctica cuando el foco está en otro control.
 - Mis canciones solo acepta tablaturas de Guitar Pro (.gp3, .gp4, .gp5, .gpx, .gp). La app toma la guitarra y saca de ella acordes (formas sobre la cejilla), rasgueos con su dirección y duración reales, y punteos.
 - La guía de una tablatura tiene dos vistas: Acordes y rasgueo (por defecto) y Partitura, con alphaTab, donde suena solo la guitarra.
 - La guía armónica inventada ya no se presenta como melodía; la cejilla se aplica una sola vez y la melodía suena por encima del rasgueo.
