@@ -2,6 +2,7 @@
 
 ## Sin publicar
 
+- Al cerrar la sesión se apaga el micrófono en Práctica y en el afinador, también si el permiso del navegador llega después.
 - Lamento boliviano queda cuadrada con su transcripción en Guitar Pro y se enseña en La menor con acordes abiertos: 120 BPM, ciclo de ocho compases (Lam, Mim, Rem, Lam, Mi7), rasgueo que completa los cuatro tiempos y melodía real en la lección y en Práctica.
 - La partitura ya se dibuja en el primer `npm run dev` de un checkout limpio: las fuentes y el soundfont de alphaTab se copian antes de que arranque el servidor.
 - Nueva escucha de la guitarra: detecta cada ataque y decide el acorde con ventanas que crecen, restando lo que ya sonaba, para seguir canciones rápidas. Se pidió el micrófono sin los filtros de voz del navegador.

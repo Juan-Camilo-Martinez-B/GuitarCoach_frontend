@@ -12,7 +12,12 @@ import {
   type ChordSlot,
   type NoteMark,
 } from "../audio/listening/scoreFollower";
-import { GUITAR_MIC, startGuitarListener, type ListeningSession } from "../audio/tuner/listen";
+import {
+  GUITAR_MIC,
+  startGuitarListener,
+  stopTracks,
+  type ListeningSession,
+} from "../audio/tuner/listen";
 import { shapeFor, spanishName } from "../chords/shapes";
 import { melodyForTitle, patternForTitle } from "../domain/course";
 import type { Song, SongStudy, StudyStep } from "../domain/types";
@@ -21,6 +26,7 @@ import { judgementVerdict } from "../game/chordVerdict";
 import { practiceCommand, type GamePhase } from "../game/GameLoop";
 import { useJourney } from "../store/journey";
 import { useSession } from "../store/session";
+import { useOnSignOut } from "../store/useOnSignOut";
 import { ChordFigure } from "../ui/ChordDiagram";
 import { Icon } from "../ui/Icon";
 import { EmptyState, PageHeader } from "../ui/PageHeader";
@@ -107,6 +113,7 @@ export function PracticePage() {
   const [melodyPosition, setMelodyPosition] = useState(0);
   const [melodyMarks, setMelodyMarks] = useState<NoteMark[]>([]);
   const sessionRef = useRef<ListeningSession | null>(null);
+  const micTicketRef = useRef(0);
   const evidenceRef = useRef(new ChordEvidence());
   const followerRef = useRef<ChordScoreFollower | null>(null);
   const cursorRef = useRef(0);
@@ -128,6 +135,8 @@ export function PracticePage() {
   symbolsRef.current = songSymbols;
 
   function closeMicrophone() {
+    // Invalida cualquier apertura en curso: el permiso puede llegar después de cerrar.
+    micTicketRef.current += 1;
     window.clearInterval(cursorRef.current);
     sessionRef.current?.stop();
     sessionRef.current = null;
@@ -136,6 +145,7 @@ export function PracticePage() {
 
   useEffect(() => {
     return () => {
+      micTicketRef.current += 1;
       listenRef.current.forEach((id) => window.clearTimeout(id));
       window.clearInterval(cursorRef.current);
       sessionRef.current?.stop();
@@ -144,7 +154,23 @@ export function PracticePage() {
     };
   }, []);
 
+  useOnSignOut(() => {
+    const micWasOn = listening || phase === "playing";
+    closeMicrophone();
+    listenRef.current.forEach((id) => window.clearTimeout(id));
+    stopGuitar();
+    setPhase("idle");
+    setActive(-1);
+    setMarks({});
+    savingRef.current = false;
+    if (micWasOn) {
+      setVerdict("La sesión se cerró y el micrófono quedó apagado.");
+      setVerdictKind("espera");
+    }
+  });
+
   async function openMicrophone(): Promise<MediaStream | null> {
+    const ticket = micTicketRef.current;
     const media = navigator.mediaDevices?.getUserMedia?.bind(navigator.mediaDevices);
     if (!media) {
       setVerdict(micErrorText(false));
@@ -153,12 +179,34 @@ export function PracticePage() {
     }
     try {
       const stream = await media(GUITAR_MIC);
+      if (ticket !== micTicketRef.current) {
+        stopTracks(stream);
+        return null;
+      }
       return stream instanceof MediaStream ? stream : null;
     } catch {
-      setVerdict(micErrorText(true));
-      setVerdictKind("no");
+      if (ticket === micTicketRef.current) {
+        setVerdict(micErrorText(true));
+        setVerdictKind("no");
+      }
       return null;
     }
+  }
+
+  /** Empieza a escuchar, salvo que el micrófono se haya cerrado mientras arrancaba. */
+  async function listenTo(
+    stream: MediaStream,
+    options: Parameters<typeof startGuitarListener>[1],
+    onEvent: (event: ListenerEvent) => void,
+  ): Promise<ListeningSession | null> {
+    const ticket = micTicketRef.current;
+    const session = await startGuitarListener(stream, options, onEvent);
+    if (ticket !== micTicketRef.current) {
+      session.stop();
+      return null;
+    }
+    sessionRef.current = session;
+    return session;
   }
 
   /** Escucha libre de un acorde: cada rasgueo empieza un veredicto nuevo. */
@@ -200,11 +248,7 @@ export function PracticePage() {
     setListening(true);
     setVerdict(`Escuchando. Toca ${spanishName(symbolRef.current)}.`);
     setVerdictKind("espera");
-    sessionRef.current = await startGuitarListener(
-      stream,
-      { chords: true, notes: false },
-      onFreeChordEvent,
-    );
+    await listenTo(stream, { chords: true, notes: false }, onFreeChordEvent);
   }
 
   async function startMelody() {
@@ -224,36 +268,32 @@ export function PracticePage() {
     setVerdict(
       follower ? `Escuchando. Toca ${noteLabel(expected[0])}.` : "Escuchando. Toca cualquier nota.",
     );
-    sessionRef.current = await startGuitarListener(
-      stream,
-      { chords: false, notes: true },
-      (event) => {
-        if (event.type !== "note") {
-          return;
-        }
-        const heard = noteLabel(event.midi);
-        setRecentNotes((current) => [...current, heard].slice(-RECENT_NOTES));
-        if (!follower) {
-          setVerdict(`Se oye ${heard}.`);
-          setVerdictKind("bien");
-          return;
-        }
-        if (follower.done) {
-          return;
-        }
-        const progress = follower.hear(event.midi);
-        setMelodyPosition(progress.position);
-        setMelodyMarks(progress.marks);
-        if (follower.done) {
-          setVerdict(`Melodía completa. Acertaste ${Math.round(follower.accuracy())} %.`);
-          setVerdictKind("bien");
-          return;
-        }
-        const next = noteLabel(expected[progress.position]);
-        setVerdict(progress.matched ? `Bien. Sigue ${next}.` : `Se oye ${heard}, toca ${next}.`);
-        setVerdictKind(progress.matched ? "bien" : "no");
-      },
-    );
+    await listenTo(stream, { chords: false, notes: true }, (event) => {
+      if (event.type !== "note") {
+        return;
+      }
+      const heard = noteLabel(event.midi);
+      setRecentNotes((current) => [...current, heard].slice(-RECENT_NOTES));
+      if (!follower) {
+        setVerdict(`Se oye ${heard}.`);
+        setVerdictKind("bien");
+        return;
+      }
+      if (follower.done) {
+        return;
+      }
+      const progress = follower.hear(event.midi);
+      setMelodyPosition(progress.position);
+      setMelodyMarks(progress.marks);
+      if (follower.done) {
+        setVerdict(`Melodía completa. Acertaste ${Math.round(follower.accuracy())} %.`);
+        setVerdictKind("bien");
+        return;
+      }
+      const next = noteLabel(expected[progress.position]);
+      setVerdict(progress.matched ? `Bien. Sigue ${next}.` : `Se oye ${heard}, toca ${next}.`);
+      setVerdictKind(progress.matched ? "bien" : "no");
+    });
   }
 
   async function finish() {
@@ -321,9 +361,12 @@ export function PracticePage() {
       token ? "Prepárate: cuenta de entrada." : "Prepárate. Esta práctica no se guardará.",
     );
     setVerdictKind("espera");
+    const ticket = micTicketRef.current;
     const stream = await openMicrophone();
     if (!stream) {
-      setPhase("idle");
+      if (ticket === micTicketRef.current) {
+        setPhase("idle");
+      }
       return;
     }
     record("tocar");
@@ -334,8 +377,10 @@ export function PracticePage() {
         followerRef.current?.addChroma(event.onsetAt, event.at, event.windowSize, event.chroma);
       }
     };
-    const session = await startGuitarListener(stream, { chords: true, notes: false }, onEvent);
-    sessionRef.current = session;
+    const session = await listenTo(stream, { chords: true, notes: false }, onEvent);
+    if (!session) {
+      return;
+    }
 
     const secondsPerBeat = 60 / (song.bpm * speed);
     const countIn = Math.round(beatsPerBar);

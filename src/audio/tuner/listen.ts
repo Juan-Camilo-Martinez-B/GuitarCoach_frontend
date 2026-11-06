@@ -48,6 +48,13 @@ function median(values: number[]): number {
   return sorted[Math.floor(sorted.length / 2)] ?? 0;
 }
 
+/** Suelta el micrófono: mientras una pista siga viva, el navegador lo muestra encendido. */
+export function stopTracks(stream: MediaStream): void {
+  for (const track of stream.getTracks()) {
+    track.stop();
+  }
+}
+
 interface Capture {
   context: AudioContext;
   stop: () => void;
@@ -99,9 +106,7 @@ async function startCapture(
       processor?.disconnect();
       source.disconnect();
       mute.disconnect();
-      for (const track of stream.getTracks()) {
-        track.stop();
-      }
+      stopTracks(stream);
       void context.close();
     },
   };

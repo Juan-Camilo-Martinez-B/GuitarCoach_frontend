@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { AudioEngine, tunerStatusLabel, type EngineState } from "../audio/engine/AudioEngine";
 import { playMidi, warmNotes } from "../audio/guitarTone";
 import { needleX } from "../audio/tuner/channel";
-import { GUITAR_MIC, startPitchMonitor } from "../audio/tuner/listen";
+import { GUITAR_MIC, startPitchMonitor, stopTracks } from "../audio/tuner/listen";
 import {
   GUITAR_STRINGS,
   nearestString,
@@ -12,6 +12,7 @@ import {
   type GuitarString,
 } from "../audio/tuner/strings";
 import { useJourney } from "../store/journey";
+import { useOnSignOut } from "../store/useOnSignOut";
 import { Icon } from "../ui/Icon";
 import { PageHeader } from "../ui/PageHeader";
 import { Term } from "../ui/Term";
@@ -56,6 +57,7 @@ function TuningGauge({ cents }: { cents: number | null }) {
 
 export function TunerPage() {
   const stopRef = useRef<(() => void) | null>(null);
+  const micTicketRef = useRef(0);
   const [state, setState] = useState<EngineState>("idle");
   const [target, setTarget] = useState<Target | null>(null);
   const [tuned, setTuned] = useState<ReadonlySet<number>>(new Set());
@@ -64,6 +66,7 @@ export function TunerPage() {
   useEffect(() => {
     warmNotes(GUITAR_STRINGS.map((string) => string.midi));
     return () => {
+      micTicketRef.current += 1;
       stopRef.current?.();
     };
   }, []);
@@ -79,21 +82,35 @@ export function TunerPage() {
   }
 
   async function activate() {
+    micTicketRef.current += 1;
+    const ticket = micTicketRef.current;
     stopRef.current?.();
     stopRef.current = null;
     show(null);
     const engine = new AudioEngine({
       request: async () => {
         const stream = await navigator.mediaDevices.getUserMedia(GUITAR_MIC);
+        if (ticket !== micTicketRef.current) {
+          stopTracks(stream);
+          return;
+        }
         if (!(stream instanceof MediaStream)) {
           return;
         }
-        stopRef.current = await startPitchMonitor(stream, (reading) => {
+        const stop = await startPitchMonitor(stream, (reading) => {
           show(reading ? nearestString(readingMidi(reading)) : null);
         });
+        if (ticket !== micTicketRef.current) {
+          stop();
+          return;
+        }
+        stopRef.current = stop;
       },
     });
     await engine.start();
+    if (ticket !== micTicketRef.current) {
+      return;
+    }
     setState(engine.state);
     if (engine.state === "listening") {
       record();
@@ -101,11 +118,15 @@ export function TunerPage() {
   }
 
   function deactivate() {
+    // Invalida cualquier apertura en curso: el permiso puede llegar después de apagar.
+    micTicketRef.current += 1;
     stopRef.current?.();
     stopRef.current = null;
     show(null);
     setState("idle");
   }
+
+  useOnSignOut(deactivate);
 
   const advice = target ? tuningAdvice(target.cents) : null;
   const listening = state === "listening";
