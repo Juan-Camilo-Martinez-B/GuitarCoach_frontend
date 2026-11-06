@@ -161,11 +161,6 @@ export function patternForTitle(title: string): StrumPattern {
   return STRUM_BASICO;
 }
 
-/** Las notas de la melodía de una canción del curso; vacío si no trae una escrita. */
-export function melodyForTitle(title: string): number[] {
-  return title === "Lamento boliviano" ? LAMENTO_MELODY.map((note) => note.midi) : [];
-}
-
 export interface SongSlot {
   symbol: string;
   beats: number;

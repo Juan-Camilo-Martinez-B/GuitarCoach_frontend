@@ -79,7 +79,6 @@ export function GuidePage() {
   const setStudy = useSession((state) => state.setStudy);
   const setPracticePattern = useSession((state) => state.setPracticePattern);
   const setScoreTiming = useSession((state) => state.setScoreTiming);
-  const setPracticeMelody = useSession((state) => state.setPracticeMelody);
   const navigate = useNavigate();
   const [record, setRecord] = useState<GuideRecord | null>(null);
   const [shapes, setShapes] = useState<Array<ChordShape | null>>([]);
@@ -276,13 +275,6 @@ export function GuidePage() {
     const section = guide.sections[sectionIndex];
     const inferred = hasInferredTiming(guide, section.start, section.start + section.beats);
     setScoreTiming(!inferred);
-    // La guía armónica no es la canción: solo se sigue la melodía que trae el archivo.
-    const from = range === "all" ? 0 : section.start;
-    const to = range === "all" ? Infinity : section.start + section.beats;
-    const notes = writtenMelody
-      ? melody.filter((note) => note.start >= from && note.start < to).map((note) => note.midi)
-      : [];
-    setPracticeMelody(notes.length > 0 ? notes : null);
     setPracticePattern(inferred ? null : sectionPattern(guide, sectionIndex));
     try {
       setStudy(await new ApiClient(apiUrl, fetch, token).songStudy(song.id));

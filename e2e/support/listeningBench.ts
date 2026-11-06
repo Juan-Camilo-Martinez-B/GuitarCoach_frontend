@@ -5,7 +5,7 @@ import { GuitarListener, type ListenerEvent } from "../../src/audio/listening/gu
 import { ChordScoreFollower, MelodyFollower } from "../../src/audio/listening/scoreFollower";
 import { guitarSampleName, onsetOffset } from "../../src/audio/guitar/sampleBank";
 
-const RATE = 44100;
+export const RATE = 44100;
 const OPEN = [40, 45, 50, 55, 59, 64];
 // Formas de los acordes, de la sexta a la primera cuerda; -1 no suena.
 const SHAPES: Record<string, number[]> = {
@@ -16,6 +16,8 @@ const SHAPES: Record<string, number[]> = {
   Am: [-1, 0, 2, 2, 1, 0],
   E: [0, 2, 2, 1, 0, 0],
   A: [-1, 0, 2, 2, 2, 0],
+  Dm: [-1, -1, 0, 2, 3, 1],
+  E7: [0, 2, 0, 1, 0, 0],
 };
 
 async function loadNote(context: OfflineAudioContext, midi: number): Promise<AudioBuffer> {
@@ -23,7 +25,7 @@ async function loadNote(context: OfflineAudioContext, midi: number): Promise<Aud
   return context.decodeAudioData(await response.arrayBuffer());
 }
 
-interface Hit {
+export interface Hit {
   midis: number[];
   at: number;
   /** Segundos entre la primera y la última cuerda del rasgueo. */
@@ -31,7 +33,7 @@ interface Hit {
   hold: number;
 }
 
-async function render(hits: Hit[], length: number, noise: number): Promise<Float32Array> {
+export async function render(hits: Hit[], length: number, noise: number): Promise<Float32Array> {
   const context = new OfflineAudioContext(1, Math.ceil(length * RATE), RATE);
   const buffers = new Map<number, AudioBuffer>();
   const offsets = new Map<number, number>();
@@ -78,7 +80,7 @@ function run(samples: Float32Array, options: { chords: boolean; notes: boolean }
   return { events, realtimeFactor: samples.length / RATE / seconds };
 }
 
-function shapeMidis(symbol: string): number[] {
+export function shapeMidis(symbol: string): number[] {
   return SHAPES[symbol].flatMap((fret, string) => (fret < 0 ? [] : [OPEN[string] + fret]));
 }
 

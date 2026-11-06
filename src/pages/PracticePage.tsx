@@ -7,10 +7,7 @@ import type { ListenerEvent } from "../audio/listening/guitarListener";
 import {
   ChordEvidence,
   ChordScoreFollower,
-  MelodyFollower,
-  noteLabel,
   type ChordSlot,
-  type NoteMark,
 } from "../audio/listening/scoreFollower";
 import {
   GUITAR_MIC,
@@ -19,7 +16,7 @@ import {
   type ListeningSession,
 } from "../audio/tuner/listen";
 import { shapeFor, spanishName } from "../chords/shapes";
-import { melodyForTitle, patternForTitle } from "../domain/course";
+import { patternForTitle } from "../domain/course";
 import type { Song, SongStudy, StudyStep } from "../domain/types";
 import { layoutChart } from "../game/ChartRenderer";
 import { judgementVerdict } from "../game/chordVerdict";
@@ -36,7 +33,7 @@ import { GlossaryText, Term } from "../ui/Term";
 
 const apiUrl = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 
-type Drill = "acorde" | "rasgueo" | "progresion" | "melodia";
+type Drill = "acorde" | "rasgueo" | "progresion";
 type Mark = "bien" | "no";
 type VerdictKind = "espera" | Mark;
 
@@ -56,7 +53,6 @@ const DRILLS: Array<{ id: Drill; title: string; text: string }> = [
     title: "Progresión",
     text: "Toca los acordes a tiempo y guarda tu resultado.",
   },
-  { id: "melodia", title: "Notas y melodía", text: "Toca nota por nota. La app te dice cuál oye." },
 ];
 
 const SPEEDS = [1, 0.75, 0.5];
@@ -69,8 +65,6 @@ const SLOT_GRACE_SECONDS = 0.25;
 const FINISH_GRACE_SECONDS = 0.5;
 const MISSED_DELTA_MS = 1000;
 const MAX_LATENCY_MS = 500;
-const RECENT_NOTES = 8;
-const MELODY_VIEW = 16;
 
 function beatPosition(step: StudyStep, beatsPerBar: number): number {
   return (step.bar - 1) * beatsPerBar + (step.beat - 1);
@@ -95,7 +89,6 @@ export function PracticePage() {
   const song = useSession((state) => state.song);
   const study = useSession((state) => state.study);
   const token = useSession((state) => state.token);
-  const practiceMelody = useSession((state) => state.practiceMelody);
   const setLastAttemptId = useSession((state) => state.setLastAttemptId);
   const record = useJourney((state) => state.record);
   const [drill, setDrill] = useState<Drill>("acorde");
@@ -109,15 +102,16 @@ export function PracticePage() {
   const [verdictKind, setVerdictKind] = useState<VerdictKind>("espera");
   const [speed, setSpeed] = useState(1);
   const [metronome, setMetronome] = useState(false);
-  const [recentNotes, setRecentNotes] = useState<string[]>([]);
-  const [melodyPosition, setMelodyPosition] = useState(0);
-  const [melodyMarks, setMelodyMarks] = useState<NoteMark[]>([]);
+  const [savedAttemptId, setSavedAttemptId] = useState<string | null>(null);
+  const [saveFailed, setSaveFailed] = useState(false);
   const sessionRef = useRef<ListeningSession | null>(null);
   const micTicketRef = useRef(0);
   const evidenceRef = useRef(new ChordEvidence());
   const followerRef = useRef<ChordScoreFollower | null>(null);
   const cursorRef = useRef(0);
-  const savingRef = useRef(false);
+  // Hay un intento por cerrar: evita guardarlo dos veces o guardar uno que no empezó.
+  const attemptOpenRef = useRef(false);
+  const latencyMsRef = useRef(0);
   const listenRef = useRef<number[]>([]);
   const listenTicket = useRef(0);
   const symbolRef = useRef("");
@@ -128,7 +122,6 @@ export function PracticePage() {
   const beatsPerBar = song?.beatsPerBar ?? 4;
   const practicePattern = useSession((state) => state.practicePattern);
   const pattern = practicePattern ?? patternForTitle(song?.title ?? "");
-  const melody = practiceMelody ?? melodyForTitle(song?.title ?? "");
   symbolRef.current = steps[picked]?.symbol ?? steps[0]?.symbol ?? "";
   const songSymbols = [...new Set(steps.map((item) => item.symbol))];
   const symbolsRef = useRef<string[]>([]);
@@ -154,6 +147,13 @@ export function PracticePage() {
     };
   }, []);
 
+  function forgetAttempt() {
+    attemptOpenRef.current = false;
+    followerRef.current = null;
+    setSavedAttemptId(null);
+    setSaveFailed(false);
+  }
+
   useOnSignOut(() => {
     const micWasOn = listening || phase === "playing";
     closeMicrophone();
@@ -162,7 +162,7 @@ export function PracticePage() {
     setPhase("idle");
     setActive(-1);
     setMarks({});
-    savingRef.current = false;
+    forgetAttempt();
     if (micWasOn) {
       setVerdict("La sesión se cerró y el micrófono quedó apagado.");
       setVerdictKind("espera");
@@ -251,59 +251,14 @@ export function PracticePage() {
     await listenTo(stream, { chords: true, notes: false }, onFreeChordEvent);
   }
 
-  async function startMelody() {
-    closeMicrophone();
-    const stream = await openMicrophone();
-    if (!stream) {
-      return;
-    }
-    record("tocar");
-    const expected = melody;
-    const follower = expected.length > 0 ? new MelodyFollower(expected) : null;
-    setRecentNotes([]);
-    setMelodyPosition(0);
-    setMelodyMarks([]);
-    setListening(true);
-    setVerdictKind("espera");
-    setVerdict(
-      follower ? `Escuchando. Toca ${noteLabel(expected[0])}.` : "Escuchando. Toca cualquier nota.",
-    );
-    await listenTo(stream, { chords: false, notes: true }, (event) => {
-      if (event.type !== "note") {
-        return;
-      }
-      const heard = noteLabel(event.midi);
-      setRecentNotes((current) => [...current, heard].slice(-RECENT_NOTES));
-      if (!follower) {
-        setVerdict(`Se oye ${heard}.`);
-        setVerdictKind("bien");
-        return;
-      }
-      if (follower.done) {
-        return;
-      }
-      const progress = follower.hear(event.midi);
-      setMelodyPosition(progress.position);
-      setMelodyMarks(progress.marks);
-      if (follower.done) {
-        setVerdict(`Melodía completa. Acertaste ${Math.round(follower.accuracy())} %.`);
-        setVerdictKind("bien");
-        return;
-      }
-      const next = noteLabel(expected[progress.position]);
-      setVerdict(progress.matched ? `Bien. Sigue ${next}.` : `Se oye ${heard}, toca ${next}.`);
-      setVerdictKind(progress.matched ? "bien" : "no");
-    });
-  }
-
   async function finish() {
     const follower = followerRef.current;
-    const session = sessionRef.current;
-    if (savingRef.current || !song || drillRef.current !== "progresion") {
+    if (!attemptOpenRef.current || !song || drillRef.current !== "progresion") {
       return;
     }
-    const latencyMs = Math.round((session?.latency ?? 0) * 1000);
-    savingRef.current = true;
+    const latencyMs = latencyMsRef.current;
+    attemptOpenRef.current = false;
+    setSaveFailed(false);
     closeMicrophone();
     setActive(-1);
     setPhase("finished");
@@ -315,6 +270,13 @@ export function PracticePage() {
     if (!token) {
       setVerdict("Práctica terminada. No se guardó.");
       setVerdictKind("espera");
+      return;
+    }
+    if (!steps.some((_step, index) => follower?.result(index).judgement.heard)) {
+      setVerdict(
+        "No se oyó ningún acorde, así que no se guardó. Revisa el micrófono e intenta de nuevo.",
+      );
+      setVerdictKind("no");
       return;
     }
     const events = steps.map((step, index) => {
@@ -339,10 +301,12 @@ export function PracticePage() {
         Math.max(-MAX_LATENCY_MS, Math.min(MAX_LATENCY_MS, latencyMs)),
       );
       setLastAttemptId(saved.id);
+      setSavedAttemptId(saved.id);
       setVerdict(`Intento guardado. Precisión ${Math.round(saved.accuracy)}%.`);
       setVerdictKind("espera");
     } catch (error) {
-      savingRef.current = false;
+      attemptOpenRef.current = true;
+      setSaveFailed(true);
       setVerdict(error instanceof ApiError ? error.message : "No se pudo guardar el intento.");
       setVerdictKind("no");
     }
@@ -353,7 +317,7 @@ export function PracticePage() {
       return;
     }
     closeMicrophone();
-    savingRef.current = false;
+    forgetAttempt();
     setMarks({});
     setActive(0);
     setPhase("playing");
@@ -403,6 +367,8 @@ export function PracticePage() {
     const symbols = symbolsRef.current;
     const follower = new ChordScoreFollower(slots, (symbol) => chordCandidates(symbol, symbols));
     followerRef.current = follower;
+    latencyMsRef.current = Math.round(session.latency * 1000);
+    attemptOpenRef.current = true;
 
     let closed = 0;
     let lastIndex = -1;
@@ -459,16 +425,14 @@ export function PracticePage() {
     setPhase("idle");
     setActive(-1);
     setMarks({});
-    savingRef.current = false;
+    forgetAttempt();
     const symbol = steps[picked]?.symbol ?? steps[0]?.symbol;
     setVerdict(
       next === "progresion"
         ? "Pulsa Empezar: habrá una cuenta de entrada y luego toca cada acorde."
-        : next === "melodia"
-          ? "Pulsa Escuchar mi guitarra y toca nota por nota."
-          : symbol
-            ? `Pulsa Escuchar mi guitarra y toca ${spanishName(symbol)}.`
-            : "Pulsa Escuchar mi guitarra y toca el acorde.",
+        : symbol
+          ? `Pulsa Escuchar mi guitarra y toca ${spanishName(symbol)}.`
+          : "Pulsa Escuchar mi guitarra y toca el acorde.",
     );
     setVerdictKind("espera");
   }
@@ -503,7 +467,6 @@ export function PracticePage() {
   // Las funciones declaradas no heredan el descarte de song nulo de más arriba.
   const bpm = song.bpm;
   const playing = phase === "playing";
-  const melodyStart = Math.max(0, melodyPosition - 4);
 
   function hearChart() {
     record("tocar");
@@ -574,10 +537,8 @@ export function PracticePage() {
             {verdict}
           </p>
           <p className="hint">
-            {drill === "melodia"
-              ? "Toca una nota a la vez y deja de tocar las demás cuerdas."
-              : "El micrófono compara las notas que suenan con las del acorde."}{" "}
-            El audio no sale de este navegador.
+            El micrófono compara las notas que suenan con las del acorde. El audio no sale de este
+            navegador.
           </p>
         </div>
         <div className="actions">
@@ -590,15 +551,36 @@ export function PracticePage() {
                 onClick={() => onKeyDown(" ")}
               >
                 <Icon name="play" />
-                Empezar
+                {phase === "finished" ? "Empezar otra vez" : "Empezar"}
               </button>
-              <button
-                className="button-ghost button-large"
-                type="button"
-                onClick={() => void finish()}
-              >
-                Cerrar intento
-              </button>
+              {playing ? (
+                <button
+                  className="button-ghost button-large"
+                  type="button"
+                  onClick={() => void finish()}
+                >
+                  Cerrar intento
+                </button>
+              ) : null}
+              {saveFailed ? (
+                <button
+                  className="button-ghost button-large"
+                  type="button"
+                  onClick={() => void finish()}
+                >
+                  Reintentar guardar
+                </button>
+              ) : null}
+              {savedAttemptId ? (
+                <Link
+                  className="button button-ghost button-large"
+                  to="/informe"
+                  state={{ attemptId: savedAttemptId }}
+                >
+                  Ver informe de esta sesión
+                  <Icon name="arrowRight" size={18} />
+                </Link>
+              ) : null}
             </>
           ) : (
             <button
@@ -609,7 +591,7 @@ export function PracticePage() {
                 if (listening) {
                   closeMicrophone();
                 } else {
-                  void (drill === "melodia" ? startMelody() : startListening());
+                  void startListening();
                 }
               }}
             >
@@ -650,186 +632,130 @@ export function PracticePage() {
         </section>
       ) : null}
 
-      {drill === "melodia" ? (
-        <section className="panel stack" aria-label="Notas">
-          {melody.length > 0 ? (
-            <>
-              <h2>Melodía de la canción</h2>
-              <ol className="note-track">
-                {melody.slice(melodyStart, melodyStart + MELODY_VIEW).map((midi, offset) => {
-                  const index = melodyStart + offset;
-                  const mark = melodyMarks[index];
-                  const classes = ["note-chip"];
-                  if (index === melodyPosition) {
-                    classes.push("is-now");
-                  }
-                  if (mark) {
-                    classes.push(`is-${mark}`);
-                  }
-                  return (
-                    <li key={index} className={classes.join(" ")}>
-                      {noteLabel(midi)}
-                    </li>
-                  );
-                })}
-              </ol>
-              <p className="hint">
-                Nota {Math.min(melodyPosition + 1, melody.length)} de {melody.length}. Si te saltas
-                una, la app sigue contigo.
-              </p>
-            </>
-          ) : (
-            <p className="hint">
-              Esta canción no trae melodía escrita. Toca lo que quieras y mira qué nota oye la app.
-              Las canciones subidas con su tablatura sí traen la melodía para seguirla.
-            </p>
-          )}
-          <div>
-            <h3>Últimas notas que oí</h3>
-            {recentNotes.length === 0 ? (
-              <p className="hint">Todavía ninguna.</p>
+      <section className="stack" aria-label="Acordes de la canción">
+        <p className="hint">
+          Esta es la <Term id="carta">carta</Term>: toca un acorde para verlo.
+        </p>
+        <ol className="chart" aria-label="Carta">
+          {boxes.map((box, index) => (
+            <li key={`${box.x}-${box.symbol}`} className={index === shown ? "is-now" : undefined}>
+              <button type="button" className="chart-hit" onClick={() => pick(index)}>
+                {box.symbol}
+                <small>
+                  {marks[index] === "bien"
+                    ? "Bien"
+                    : marks[index] === "no"
+                      ? "No"
+                      : `${beatsOf(steps, index, beatsPerBar)} t`}
+                </small>
+              </button>
+            </li>
+          ))}
+        </ol>
+      </section>
+
+      {step ? (
+        <section className="panel practice-chord">
+          <ChordFigure symbol={step.symbol} />
+          <div className="practice-chord-tools">
+            {drill !== "acorde" ? (
+              <StrumRail
+                pattern={pattern}
+                active={arrow}
+                onStrum={(direction, index) => {
+                  setArrow(index);
+                  void shapeFor(step.symbol).then((found) => {
+                    if (found) {
+                      playStrum(found, direction);
+                    }
+                  });
+                }}
+              />
             ) : (
-              <ol className="note-track">
-                {recentNotes.map((name, index) => (
-                  <li key={`${name}-${index}`} className="note-chip">
-                    {name}
-                  </li>
-                ))}
-              </ol>
+              <p className="hint">
+                Los puntos son tus dedos, las líneas verticales son las cuerdas y las horizontales,
+                los trastes.
+              </p>
             )}
+            {drill === "rasgueo" ? (
+              <p className="hint">
+                <GlossaryText text={pattern.hint} />
+              </p>
+            ) : null}
+            <div className="actions">
+              <button
+                type="button"
+                className="button-ghost"
+                onClick={() => {
+                  void shapeFor(step.symbol).then((found) => {
+                    if (found) {
+                      playChord(found);
+                    }
+                  });
+                }}
+              >
+                <Icon name="sound" size={18} />
+                Escuchar el acorde
+              </button>
+              {drill !== "acorde" ? (
+                <button
+                  type="button"
+                  className="button-ghost"
+                  onClick={() => {
+                    listenTicket.current += 1;
+                    const ticket = listenTicket.current;
+                    listenRef.current.forEach((id) => window.clearTimeout(id));
+                    listenRef.current = [];
+                    void shapeFor(step.symbol)
+                      .then((found) =>
+                        found && ticket === listenTicket.current
+                          ? playPattern(found, song.bpm, pattern)
+                          : [],
+                      )
+                      .then((hits) => {
+                        if (ticket !== listenTicket.current || hits.length === 0) {
+                          return;
+                        }
+                        listenRef.current = queueStrumMarks(
+                          hits,
+                          (hit) => setArrow(hit.hit),
+                          () => setArrow(-1),
+                        );
+                      });
+                  }}
+                >
+                  <Icon name="sound" size={18} />
+                  Escuchar el rasgueo
+                </button>
+              ) : null}
+              {drill === "progresion" ? (
+                <button type="button" className="button-ghost" onClick={hearChart}>
+                  <Icon name="sound" size={18} />
+                  Escuchar la canción
+                </button>
+              ) : null}
+            </div>
+            <div className="actions">
+              <button
+                type="button"
+                className="button-ghost"
+                onClick={() => pick(Math.max(0, shown - 1))}
+              >
+                <Icon name="arrowLeft" size={18} />
+                Anterior
+              </button>
+              <button
+                type="button"
+                className="button-ghost"
+                onClick={() => pick(Math.min(steps.length - 1, shown + 1))}
+              >
+                Siguiente
+                <Icon name="arrowRight" size={18} />
+              </button>
+            </div>
           </div>
         </section>
-      ) : (
-        <>
-          <section className="stack" aria-label="Acordes de la canción">
-            <p className="hint">
-              Esta es la <Term id="carta">carta</Term>: toca un acorde para verlo.
-            </p>
-            <ol className="chart" aria-label="Carta">
-              {boxes.map((box, index) => (
-                <li
-                  key={`${box.x}-${box.symbol}`}
-                  className={index === shown ? "is-now" : undefined}
-                >
-                  <button type="button" className="chart-hit" onClick={() => pick(index)}>
-                    {box.symbol}
-                    <small>
-                      {marks[index] === "bien"
-                        ? "Bien"
-                        : marks[index] === "no"
-                          ? "No"
-                          : `${beatsOf(steps, index, beatsPerBar)} t`}
-                    </small>
-                  </button>
-                </li>
-              ))}
-            </ol>
-          </section>
-
-          {step ? (
-            <section className="panel practice-chord">
-              <ChordFigure symbol={step.symbol} />
-              <div className="practice-chord-tools">
-                {drill !== "acorde" ? (
-                  <StrumRail
-                    pattern={pattern}
-                    active={arrow}
-                    onStrum={(direction, index) => {
-                      setArrow(index);
-                      void shapeFor(step.symbol).then((found) => {
-                        if (found) {
-                          playStrum(found, direction);
-                        }
-                      });
-                    }}
-                  />
-                ) : (
-                  <p className="hint">
-                    Los puntos son tus dedos, las líneas verticales son las cuerdas y las
-                    horizontales, los trastes.
-                  </p>
-                )}
-                {drill === "rasgueo" ? (
-                  <p className="hint">
-                    <GlossaryText text={pattern.hint} />
-                  </p>
-                ) : null}
-                <div className="actions">
-                  <button
-                    type="button"
-                    className="button-ghost"
-                    onClick={() => {
-                      void shapeFor(step.symbol).then((found) => {
-                        if (found) {
-                          playChord(found);
-                        }
-                      });
-                    }}
-                  >
-                    <Icon name="sound" size={18} />
-                    Escuchar el acorde
-                  </button>
-                  {drill !== "acorde" ? (
-                    <button
-                      type="button"
-                      className="button-ghost"
-                      onClick={() => {
-                        listenTicket.current += 1;
-                        const ticket = listenTicket.current;
-                        listenRef.current.forEach((id) => window.clearTimeout(id));
-                        listenRef.current = [];
-                        void shapeFor(step.symbol)
-                          .then((found) =>
-                            found && ticket === listenTicket.current
-                              ? playPattern(found, song.bpm, pattern)
-                              : [],
-                          )
-                          .then((hits) => {
-                            if (ticket !== listenTicket.current || hits.length === 0) {
-                              return;
-                            }
-                            listenRef.current = queueStrumMarks(
-                              hits,
-                              (hit) => setArrow(hit.hit),
-                              () => setArrow(-1),
-                            );
-                          });
-                      }}
-                    >
-                      <Icon name="sound" size={18} />
-                      Escuchar el rasgueo
-                    </button>
-                  ) : null}
-                  {drill === "progresion" ? (
-                    <button type="button" className="button-ghost" onClick={hearChart}>
-                      <Icon name="sound" size={18} />
-                      Escuchar la canción
-                    </button>
-                  ) : null}
-                </div>
-                <div className="actions">
-                  <button
-                    type="button"
-                    className="button-ghost"
-                    onClick={() => pick(Math.max(0, shown - 1))}
-                  >
-                    <Icon name="arrowLeft" size={18} />
-                    Anterior
-                  </button>
-                  <button
-                    type="button"
-                    className="button-ghost"
-                    onClick={() => pick(Math.min(steps.length - 1, shown + 1))}
-                  >
-                    Siguiente
-                    <Icon name="arrowRight" size={18} />
-                  </button>
-                </div>
-              </div>
-            </section>
-          ) : null}
-        </>
-      )}
+      ) : null}
 
       {study ? <p className="hint">{study.summary}</p> : null}
       {drill === "progresion" ? (

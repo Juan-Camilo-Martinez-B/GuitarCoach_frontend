@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Link, useLocation } from "react-router-dom";
 import { ApiClient, ApiError } from "../api/client";
 import type { AttemptSummary, CoachPlan, ReportView } from "../domain/types";
 import { useJourney } from "../store/journey";
@@ -29,6 +29,9 @@ export function ReportPage() {
   const [message, setMessage] = useState("");
   const [mode, setMode] = useState<Mode>("intento");
   const [plan, setPlan] = useState<CoachPlan | null>(null);
+  const sessionAttempt = (useLocation().state as { attemptId?: string } | null)?.attemptId;
+  const openedAttempt = useRef<string | null>(null);
+  const reportPanel = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
     if (!token) {
@@ -49,17 +52,35 @@ export function ReportPage() {
     void load();
   }, [load]);
 
-  async function askReport(attemptId: string) {
-    setChosen(attemptId);
-    setState("loading");
-    try {
-      setReport(await new ApiClient(apiUrl, fetch, token).createReport(attemptId));
-      setState("idle");
-    } catch (error) {
-      setState("error");
-      setMessage(error instanceof ApiError ? error.message : "No se pudo pedir el informe.");
+  const askReport = useCallback(
+    async (attemptId: string) => {
+      setChosen(attemptId);
+      setState("loading");
+      try {
+        setReport(await new ApiClient(apiUrl, fetch, token).createReport(attemptId));
+        setState("idle");
+      } catch (error) {
+        setState("error");
+        setMessage(error instanceof ApiError ? error.message : "No se pudo pedir el informe.");
+      }
+    },
+    [token],
+  );
+
+  // Se llega aquí al terminar una sesión: su informe se abre sin buscarlo en la lista.
+  useEffect(() => {
+    if (!token || !sessionAttempt || openedAttempt.current === sessionAttempt) {
+      return;
     }
-  }
+    openedAttempt.current = sessionAttempt;
+    void askReport(sessionAttempt);
+  }, [askReport, sessionAttempt, token]);
+
+  useEffect(() => {
+    if (report && report.attemptId === sessionAttempt) {
+      reportPanel.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [report, sessionAttempt]);
 
   async function askCoach() {
     setState("loading");
@@ -189,7 +210,9 @@ export function ReportPage() {
           </div>
         </section>
       )}
-      <ReportPanel report={shown} />
+      <div ref={reportPanel}>
+        <ReportPanel report={shown} />
+      </div>
       {history.length > 1 ? (
         <section className="panel">
           <h2>

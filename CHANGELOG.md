@@ -2,6 +2,9 @@
 
 ## Sin publicar
 
+- Al terminar una sesión de Progresión se puede empezar otra y abrir el informe de esa sesión con un botón.
+- Cerrar un intento sin haber oído ningún acorde ya no guarda un 0 %.
+- Práctica deja de ofrecer Notas y melodía. La melodía de una canción sigue en su lección y en su guía.
 - El informe indica si lo escribió la IA o si es el análisis automático de la app.
 - Al cerrar la sesión se apaga el micrófono en Práctica y en el afinador, también si el permiso del navegador llega después.
 - Lamento boliviano queda cuadrada con su transcripción en Guitar Pro y se enseña en La menor con acordes abiertos: 120 BPM, ciclo de ocho compases (Lam, Mim, Rem, Lam, Mi7), rasgueo que completa los cuatro tiempos y melodía real en la lección y en Práctica.

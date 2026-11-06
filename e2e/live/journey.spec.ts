@@ -43,13 +43,6 @@ test("un alumno usa toda la app contra la API real", async ({ page }) => {
     await page.getByRole("button", { name: "Dejar de escuchar" }).click();
   });
 
-  await test.step("la modalidad de notas abre y cierra el micrófono", async () => {
-    await page.getByRole("button", { name: /Notas y melodía/ }).click();
-    await page.getByRole("button", { name: "Escuchar mi guitarra" }).click();
-    await expect(page.getByRole("button", { name: "Dejar de escuchar" })).toBeVisible();
-    await page.getByRole("button", { name: "Dejar de escuchar" }).click();
-  });
-
   await test.step("un intento a tiempo se guarda en la cuenta", async () => {
     await page.getByRole("button", { name: /^Progresión/ }).click();
     await page.getByRole("button", { name: "Empezar" }).click();

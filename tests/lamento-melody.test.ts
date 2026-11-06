@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { shapeMidis } from "../src/audio/guitarTone";
 import { localShape } from "../src/chords/shapes";
-import { melodyForTitle, SONG_GUIDES } from "../src/domain/course";
+import { SONG_GUIDES } from "../src/domain/course";
 import { LAMENTO_MELODY } from "../src/domain/lamentoMelody";
 
 const guide = SONG_GUIDES["cancion-lamento"];
@@ -60,10 +60,5 @@ describe("Lamento boliviano", () => {
       expect(notes.filter((note) => !tones.includes(note.midi % 12))).toEqual([]);
       origin += slot.beats;
     }
-  });
-
-  it("entrega la melodía a Práctica solo para esta canción", () => {
-    expect(melodyForTitle("Lamento boliviano")).toHaveLength(64);
-    expect(melodyForTitle("Cambios abiertos")).toEqual([]);
   });
 });

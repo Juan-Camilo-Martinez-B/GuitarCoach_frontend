@@ -20,6 +20,20 @@ export const CATALOG = [
       { bar: 4, beat: 1, chord: "C" },
     ],
   },
+  {
+    id: 2,
+    title: "Lamento boliviano",
+    artist: "GuitarCoach",
+    song_key: "Am",
+    bpm: 120,
+    chords: [
+      { bar: 1, beat: 1, chord: "Am" },
+      { bar: 3, beat: 1, chord: "Em" },
+      { bar: 5, beat: 1, chord: "Dm" },
+      { bar: 7, beat: 1, chord: "Am" },
+      { bar: 8, beat: 1, chord: "E7" },
+    ],
+  },
 ];
 
 interface GuidePayload {
@@ -34,11 +48,24 @@ interface GuidePayload {
   guide: Record<string, unknown>;
 }
 
+export interface AttemptPayload {
+  song_id: number;
+  bpm: number;
+  events: Array<{
+    bar: number;
+    expected: string;
+    detected: string | null;
+    delta_ms: number;
+    confidence: number;
+  }>;
+}
+
 export interface ApiState {
   guides: GuidePayload[];
   puts: Array<Record<string, unknown>>;
   uploads: Array<Record<string, unknown>>;
   journeySaves: Array<{ milestones: string[]; days: string[] }>;
+  attempts: AttemptPayload[];
 }
 
 function json(route: Route, body: unknown, status = 200) {
@@ -62,7 +89,7 @@ function guideField(body: Buffer): Record<string, unknown> {
 
 /** Simula la API para que las pruebas no dependan del backend ni de la base. */
 export async function mockApi(page: Page): Promise<ApiState> {
-  const state: ApiState = { guides: [], puts: [], uploads: [], journeySaves: [] };
+  const state: ApiState = { guides: [], puts: [], uploads: [], journeySaves: [], attempts: [] };
   const tab = readFileSync(TAB_FIXTURE);
   await page.route(`${API}/**`, async (route) => {
     const request = route.request();
@@ -118,6 +145,16 @@ export async function mockApi(page: Page): Promise<ApiState> {
           created_at: "2026-10-29T15:00:00Z",
         },
       ]);
+    }
+    if (path === "/attempts" && method === "POST") {
+      const attempt = request.postDataJSON() as AttemptPayload;
+      state.attempts.push(attempt);
+      const right = attempt.events.filter((event) => event.expected === event.detected).length;
+      return json(
+        route,
+        { id: "a1", accuracy: (right / attempt.events.length) * 100, avg_delta_ms: 0 },
+        201,
+      );
     }
     if (path === "/attempts/a1/report" && method === "POST") {
       return json(route, {
