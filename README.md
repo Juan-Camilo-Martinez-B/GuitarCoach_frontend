@@ -146,7 +146,7 @@ Dos vistas, con un selector arriba:
 | `src/tab/useAlphaTab.ts`  | Hook que monta alphaTab, escucha sus eventos (partitura, reproductor, posición) y expone los controles.    |
 | `src/ui/TabPlayer.tsx`    | El reproductor dentro de la guía. Se carga bajo demanda: el resto de la app no descarga alphaTab (318 KB). |
 
-El plugin `@coderline/alphatab-vite` (en `vite.config.ts`) copia las fuentes de notación a `/font` y el soundfont a `/soundfont`, y prepara el worker y el worklet de audio. Al abrir la tablatura, la guitarra de las guías se calla para que los dos motores no se pisen.
+El plugin `@coderline/alphatab-vite` (en `vite.config.ts`) copia las fuentes de notación a `/font` y el soundfont a `/soundfont`, y prepara el worker y el worklet de audio. En desarrollo, `vite.config.ts` hace esa copia antes de que arranque el servidor, porque Vite solo sirve lo que ya estaba en `public/` al iniciar. Al abrir la tablatura, la guitarra de las guías se calla para que los dos motores no se pisen.
 
 **Formato de la API.** La app trabaja el tempo como `usPerQuarter` y la API lo valida como `us_per_quarter`. `guideToWire` (`src/api/guides.ts`) hace esa conversión al guardar. Antes faltaba, y corregir una guía respondía 422.
 

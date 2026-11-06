@@ -2,6 +2,7 @@
 
 ## Sin publicar
 
+- La partitura ya se dibuja en el primer `npm run dev` de un checkout limpio: las fuentes y el soundfont de alphaTab se copian antes de que arranque el servidor.
 - Nueva escucha de la guitarra: detecta cada ataque y decide el acorde con ventanas que crecen, restando lo que ya sonaba, para seguir canciones rápidas. Se pidió el micrófono sin los filtros de voz del navegador.
 - Práctica: nueva modalidad Notas y melodía, cuenta de entrada, cursor a tempo, velocidad y metrónomo en el intento, y compases que no sean de 4 tiempos.
 - Los logros y la racha se guardan en la cuenta y vuelven al entrar desde otro equipo.
