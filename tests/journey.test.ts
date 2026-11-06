@@ -44,7 +44,7 @@ describe("ruta y logros", () => {
   it("ignora lo guardado que no tiene la forma esperada", () => {
     expect(parseJourney("no es json")).toEqual(EMPTY_JOURNEY);
     expect(parseJourney('{"milestones":["afinar","trampa"],"lastDay":"ayer","streak":-3}')).toEqual(
-      { milestones: ["afinar"], lastDay: null, streak: 0, bestStreak: 0 },
+      { milestones: ["afinar"], days: [], lastDay: null, streak: 0, bestStreak: 0 },
     );
   });
 });

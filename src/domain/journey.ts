@@ -57,6 +57,8 @@ export const JOURNEY_STEPS: JourneyStep[] = [
 
 export interface JourneyProgress {
   milestones: MilestoneId[];
+  /** Días con práctica, para subirlos a la cuenta sin perder ninguno. */
+  days: string[];
   /** Último día con práctica, como AAAA-MM-DD en la hora local. */
   lastDay: string | null;
   streak: number;
@@ -65,10 +67,15 @@ export interface JourneyProgress {
 
 export const EMPTY_JOURNEY: JourneyProgress = {
   milestones: [],
+  days: [],
   lastDay: null,
   streak: 0,
   bestStreak: 0,
 };
+
+// Lo que acepta la API en un aviso.
+const MAX_LOCAL_DAYS = 400;
+const DAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 export function dayKey(date: Date): string {
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -89,6 +96,7 @@ export function recordDay(progress: JourneyProgress, today: string): JourneyProg
   const streak = progress.lastDay === previousDay(today) ? progress.streak + 1 : 1;
   return {
     ...progress,
+    days: [...progress.days, today].slice(-MAX_LOCAL_DAYS),
     lastDay: today,
     streak,
     bestStreak: Math.max(progress.bestStreak, streak),
@@ -183,10 +191,13 @@ export function parseJourney(raw: string | null): JourneyProgress {
       milestones: Array.isArray(value.milestones)
         ? value.milestones.filter((id) => MILESTONE_IDS.has(id))
         : [],
+      days: Array.isArray(value.days)
+        ? value.days
+            .filter((day) => typeof day === "string" && DAY_PATTERN.test(day))
+            .slice(-MAX_LOCAL_DAYS)
+        : [],
       lastDay:
-        typeof value.lastDay === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value.lastDay)
-          ? value.lastDay
-          : null,
+        typeof value.lastDay === "string" && DAY_PATTERN.test(value.lastDay) ? value.lastDay : null,
       streak: count(value.streak),
       bestStreak: count(value.bestStreak),
     };

@@ -89,6 +89,20 @@ test("la ruta guiada avanza y gana un logro al afinar", async ({ page }) => {
   await expect(page.locator(".path li.is-current")).toContainText("Aprende tu primer acorde");
 });
 
+test("con sesión, el avance viaja a la cuenta y se reemplaza con lo que ella responde", async ({
+  page,
+}) => {
+  const api = await mockApi(page);
+  await signedIn(page);
+  await page.goto("/afinador");
+  await expect.poll(() => api.journeySaves.length).toBeGreaterThan(0);
+  await page.getByRole("link", { name: "Ya afiné, elegir canción" }).click();
+  await expect
+    .poll(() => api.journeySaves[api.journeySaves.length - 1]?.milestones ?? [])
+    .toContain("afinar");
+  await expect(page.locator(".toast")).toContainText("Buen oído");
+});
+
 test("el tema oscuro cambia el fondo y se conserva al recargar", async ({ page }) => {
   await mockApi(page);
   await page.goto("/");

@@ -1,6 +1,7 @@
-import { Component, useEffect, type ReactNode } from "react";
+import { Component, useEffect, useRef, type ReactNode } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import { useGuitarLoading } from "../audio/guitar/useGuitarLoading";
+import { useJourney } from "../store/journey";
 import { useSession } from "../store/session";
 import { ThemeToggle } from "../theme/ThemeToggle";
 import { AchievementToast, StreakBadge } from "../ui/Achievements";
@@ -65,6 +66,21 @@ export function Shell() {
   const guitarLoading = useGuitarLoading();
   const section = sectionFor(location.pathname);
   const sessionHere = location.pathname === "/entrar" || location.pathname === "/registro";
+
+  const syncJourney = useJourney((state) => state.sync);
+  const forgetJourney = useJourney((state) => state.forget);
+  const hadSession = useRef(Boolean(token));
+
+  // Al entrar, el avance de este navegador se junta con el de la cuenta; al salir, se olvida.
+  useEffect(() => {
+    if (token) {
+      hadSession.current = true;
+      void syncJourney();
+    } else if (hadSession.current) {
+      hadSession.current = false;
+      forgetJourney();
+    }
+  }, [forgetJourney, syncJourney, token]);
 
   // Cada pantalla empieza arriba: en un celular, la anterior pudo quedar muy abajo.
   useEffect(() => {

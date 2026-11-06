@@ -38,6 +38,7 @@ export interface ApiState {
   guides: GuidePayload[];
   puts: Array<Record<string, unknown>>;
   uploads: Array<Record<string, unknown>>;
+  journeySaves: Array<{ milestones: string[]; days: string[] }>;
 }
 
 function json(route: Route, body: unknown, status = 200) {
@@ -61,7 +62,7 @@ function guideField(body: Buffer): Record<string, unknown> {
 
 /** Simula la API para que las pruebas no dependan del backend ni de la base. */
 export async function mockApi(page: Page): Promise<ApiState> {
-  const state: ApiState = { guides: [], puts: [], uploads: [] };
+  const state: ApiState = { guides: [], puts: [], uploads: [], journeySaves: [] };
   const tab = readFileSync(TAB_FIXTURE);
   await page.route(`${API}/**`, async (route) => {
     const request = route.request();
@@ -87,6 +88,20 @@ export async function mockApi(page: Page): Promise<ApiState> {
         difficulty: "facil",
         chords: [],
         melody: [],
+      });
+    }
+    if (path === "/me/journey") {
+      const body = route.request().postDataJSON() as {
+        milestones: string[];
+        days: string[];
+      };
+      state.journeySaves.push(body);
+      return json(route, {
+        milestones: body.milestones,
+        days: body.days,
+        current_streak: body.days.length > 0 ? 1 : 0,
+        best_streak: body.days.length > 0 ? 1 : 0,
+        badges: [],
       });
     }
     if (path === "/me/curriculum") {

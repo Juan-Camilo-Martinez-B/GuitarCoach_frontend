@@ -16,6 +16,7 @@ import {
   type WireGuide,
 } from "./guides";
 import { songFromPayload, type SongPayload } from "./songs";
+import type { MilestoneId } from "../domain/journey";
 import { useSession } from "../store/session";
 
 export type JobNotice = {
@@ -24,6 +25,14 @@ export type JobNotice = {
   song_id: number | null;
   error: string | null;
 };
+
+export interface JourneyPayload {
+  milestones: MilestoneId[];
+  days: string[];
+  current_streak: number;
+  best_streak: number;
+  badges: string[];
+}
 
 export class ApiError extends Error {
   constructor(
@@ -215,13 +224,14 @@ export class ApiClient {
       deltaMs: number;
       confidence: number;
     }>,
+    latencyOffsetMs = 0,
   ): Promise<{ id: string; accuracy: number }> {
     const response = await this.request("/attempts", {
       method: "POST",
       body: JSON.stringify({
         song_id: songId,
         bpm,
-        latency_offset_ms: 0,
+        latency_offset_ms: latencyOffsetMs,
         events: events.map((event) => ({
           bar: event.bar,
           expected: event.expected,
@@ -233,6 +243,19 @@ export class ApiClient {
     });
     const body = (await response.json()) as { id: string; accuracy: number };
     return { id: body.id, accuracy: body.accuracy };
+  }
+
+  /** Repetir este aviso no cambia nada: el servidor junta lo nuevo con lo que ya tenía. */
+  async saveJourney(
+    today: string,
+    milestones: MilestoneId[],
+    days: string[],
+  ): Promise<JourneyPayload> {
+    const response = await this.request("/me/journey", {
+      method: "POST",
+      body: JSON.stringify({ today, milestones, days }),
+    });
+    return (await response.json()) as JourneyPayload;
   }
 
   async curriculum(): Promise<Curriculum> {
