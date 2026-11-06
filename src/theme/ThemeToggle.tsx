@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Icon, type IconName } from "../ui/Icon";
 import {
   applyTheme,
   isThemeChoice,
@@ -8,6 +9,12 @@ import {
   themeLabel,
   type ThemeChoice,
 } from "./theme";
+
+const THEME_ICON: Record<ThemeChoice, IconName> = {
+  light: "sun",
+  dark: "moon",
+  system: "auto",
+};
 
 function currentChoice(): ThemeChoice {
   if (typeof document === "undefined") {
@@ -40,9 +47,11 @@ export function ThemeToggle() {
       type="button"
       className="theme-toggle"
       aria-label={`Tema ${themeLabel(choice)}. Cambiar entre claro, oscuro y sistema.`}
+      title="Cambiar entre claro, oscuro y sistema"
       onClick={() => setChoice((current) => nextTheme(current))}
     >
-      {themeLabel(choice)}
+      <Icon name={THEME_ICON[choice]} size={18} />
+      <span>{themeLabel(choice)}</span>
     </button>
   );
 }

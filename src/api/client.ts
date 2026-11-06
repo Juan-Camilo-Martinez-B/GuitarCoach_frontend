@@ -10,10 +10,13 @@ import type { GuideRecord, GuideStatus, GuideSummary, SongGuide } from "../domai
 import {
   guideFromPayload,
   guideSummaryFromPayload,
+  guideToWire,
   type GuidePayload,
   type GuideSummaryPayload,
+  type WireGuide,
 } from "./guides";
 import { songFromPayload, type SongPayload } from "./songs";
+import type { MilestoneId } from "../domain/journey";
 import { useSession } from "../store/session";
 
 export type JobNotice = {
@@ -22,6 +25,14 @@ export type JobNotice = {
   song_id: number | null;
   error: string | null;
 };
+
+export interface JourneyPayload {
+  milestones: MilestoneId[];
+  days: string[];
+  current_streak: number;
+  best_streak: number;
+  badges: string[];
+}
 
 export class ApiError extends Error {
   constructor(
@@ -213,13 +224,14 @@ export class ApiClient {
       deltaMs: number;
       confidence: number;
     }>,
+    latencyOffsetMs = 0,
   ): Promise<{ id: string; accuracy: number }> {
     const response = await this.request("/attempts", {
       method: "POST",
       body: JSON.stringify({
         song_id: songId,
         bpm,
-        latency_offset_ms: 0,
+        latency_offset_ms: latencyOffsetMs,
         events: events.map((event) => ({
           bar: event.bar,
           expected: event.expected,
@@ -231,6 +243,19 @@ export class ApiClient {
     });
     const body = (await response.json()) as { id: string; accuracy: number };
     return { id: body.id, accuracy: body.accuracy };
+  }
+
+  /** Repetir este aviso no cambia nada: el servidor junta lo nuevo con lo que ya tenía. */
+  async saveJourney(
+    today: string,
+    milestones: MilestoneId[],
+    days: string[],
+  ): Promise<JourneyPayload> {
+    const response = await this.request("/me/journey", {
+      method: "POST",
+      body: JSON.stringify({ today, milestones, days }),
+    });
+    return (await response.json()) as JourneyPayload;
   }
 
   async curriculum(): Promise<Curriculum> {
@@ -317,30 +342,16 @@ export class ApiClient {
     }));
   }
 
-  async pasteGuide(input: {
-    title: string;
-    artist: string;
-    text: string;
-    bpm?: number;
-    time?: string;
-    capo?: number;
-    strum?: string;
-  }): Promise<GuideRecord> {
-    const response = await this.request("/guides/paste", {
-      method: "POST",
-      body: JSON.stringify(input),
-    });
-    return guideFromPayload((await response.json()) as GuidePayload);
-  }
-
-  async uploadGuide(file: File): Promise<GuideRecord> {
+  /** La guía la arma el navegador; el servidor la valida y guarda el archivo para tocarlo. */
+  async guideFromTab(file: File, guide: WireGuide): Promise<GuideRecord> {
     const headers = new Headers();
     if (this.token) {
       headers.set("Authorization", `Bearer ${this.token}`);
     }
     const body = new FormData();
     body.append("file", file);
-    const response = await this.fetchImpl(this.url("/guides/upload"), {
+    body.append("guide", JSON.stringify(guide));
+    const response = await this.fetchImpl(this.url("/guides/from-tab"), {
       method: "POST",
       headers,
       body,
@@ -351,30 +362,9 @@ export class ApiClient {
     return guideFromPayload((await response.json()) as GuidePayload);
   }
 
-  async guideFromAudio(
-    file: File,
-    title: string,
-    artist: string,
-    melody: boolean,
-  ): Promise<GuideRecord> {
-    const headers = new Headers();
-    if (this.token) {
-      headers.set("Authorization", `Bearer ${this.token}`);
-    }
-    const body = new FormData();
-    body.append("file", file);
-    body.append("title", title);
-    body.append("artist", artist);
-    body.append("melody", String(melody));
-    const response = await this.fetchImpl(this.url("/guides/from-audio"), {
-      method: "POST",
-      headers,
-      body,
-    });
-    if (!response.ok) {
-      throw await this.rejected(response);
-    }
-    return guideFromPayload((await response.json()) as GuidePayload);
+  async guideTab(id: string): Promise<ArrayBuffer> {
+    const response = await this.request(`/guides/${encodeURIComponent(id)}/tab`);
+    return response.arrayBuffer();
   }
 
   async listGuides(): Promise<GuideSummary[]> {
@@ -391,7 +381,7 @@ export class ApiClient {
   async updateGuide(id: string, guide: SongGuide, status: GuideStatus): Promise<GuideRecord> {
     const response = await this.request(`/guides/${encodeURIComponent(id)}`, {
       method: "PUT",
-      body: JSON.stringify({ status, guide }),
+      body: JSON.stringify({ status, guide: guideToWire(guide) }),
     });
     return guideFromPayload((await response.json()) as GuidePayload);
   }

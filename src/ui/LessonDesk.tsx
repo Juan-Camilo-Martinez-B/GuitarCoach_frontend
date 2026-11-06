@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { playMidi, playPattern, playStrum, warmNotes } from "../audio/guitarTone";
 import { localShape, placeNote } from "../chords/shapes";
 import { SONG_GUIDES, STRUM_BASICO } from "../domain/course";
@@ -23,7 +23,14 @@ const NOTES = ["Do", "Re", "Mi", "Fa", "Sol", "La", "Si"];
 export function LessonDesk({ lessonId }: { lessonId: string }) {
   const guide = SONG_GUIDES[lessonId];
   if (guide) {
-    return <SongLesson bpm={guide.bpm} slots={guide.slots} pattern={guide.pattern} />;
+    return (
+      <SongLesson
+        bpm={guide.bpm}
+        slots={guide.slots}
+        pattern={guide.pattern}
+        melody={guide.melody}
+      />
+    );
   }
   if (lessonId === "cuerdas") {
     return <StringBoard />;
@@ -63,11 +70,12 @@ function StringBoard() {
   }, []);
   return (
     <div className="string-board">
-      {STRINGS.map((string) => (
+      {STRINGS.map((string, index) => (
         <button
           key={string.number}
           type="button"
           className="string-row"
+          style={{ "--string-index": index } as CSSProperties}
           onClick={() => playMidi(string.midi)}
         >
           <strong>{string.number}</strong>

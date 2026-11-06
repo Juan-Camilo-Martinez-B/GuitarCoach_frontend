@@ -12,19 +12,22 @@ export function pushSamples(
   return Float32Array.from(buffer.splice(0, chunkSize));
 }
 
+export interface CapturedChunk {
+  samples: Float32Array;
+  /** Posición de la primera muestra en el reloj del AudioContext. */
+  frame: number;
+}
+
 const processorReady = typeof AudioWorkletProcessor !== "undefined";
 
 if (processorReady) {
   class CaptureProcessor extends AudioWorkletProcessor {
-    private readonly buffer: number[] = [];
-
     process(inputs: Float32Array[][]): boolean {
       const channel = inputs[0]?.[0];
       if (channel) {
-        const chunk = pushSamples(this.buffer, channel, 128);
-        if (chunk) {
-          this.port.postMessage(chunk);
-        }
+        // El búfer del navegador se reutiliza: hay que copiarlo antes de enviarlo.
+        const message: CapturedChunk = { samples: channel.slice(), frame: currentFrame };
+        this.port.postMessage(message);
       }
       return true;
     }

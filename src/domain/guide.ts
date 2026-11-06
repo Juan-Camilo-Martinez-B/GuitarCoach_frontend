@@ -79,6 +79,7 @@ export const SOURCE_LABEL: Record<string, string> = {
   musicxml: "MusicXML",
   audio: "Audio",
   editor: "Editor",
+  tablatura: "Tablatura",
 };
 
 /** Un golpe de rasgueo de la guía, en pulsos relativos al tramo que se toca. */
@@ -210,7 +211,10 @@ export function ensureGrid(guide: SongGuide): SongGuide {
 }
 
 /** Rasgueo que se puede copiar cuando la carta no trae el suyo. */
-export function lessonStrum(beatsPerBar: number): { directions: StrumDirection[]; beats: number[] } {
+export function lessonStrum(beatsPerBar: number): {
+  directions: StrumDirection[];
+  beats: number[];
+} {
   if (Math.abs(beatsPerBar - 4) < 0.05) {
     return {
       directions: ["abajo", "abajo", "arriba", "abajo", "arriba"],
@@ -232,12 +236,12 @@ export function lessonStrum(beatsPerBar: number): { directions: StrumDirection[]
 
 export function lessonHint(beatsPerBar: number): string {
   if (Math.abs(beatsPerBar - 4) < 0.05) {
-    return "Abajo, abajo, arriba, abajo, arriba. Los dos del medio duran medio tiempo. La melodía canta la fundamental y la tercera de cada acorde.";
+    return "Abajo, abajo, arriba, abajo, arriba. Los dos del medio duran medio tiempo.";
   }
   if (Math.abs(beatsPerBar - 3) < 0.05) {
-    return "Abajo en el primer tiempo, largo, y arriba al final del compás. La melodía sigue el acorde.";
+    return "Abajo en el primer tiempo, largo, y arriba al final del compás.";
   }
-  return "Un golpe por tiempo, con una melodía que sigue el acorde para que la copies.";
+  return "Un golpe por tiempo.";
 }
 
 const STEP: Record<string, number> = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
@@ -288,6 +292,35 @@ function lessonMelody(chords: GuideChord[]): GuideNote[] {
     }
   }
   return notes;
+}
+
+function sameNotes(left: GuideNote[], right: GuideNote[]): boolean {
+  return (
+    left.length === right.length &&
+    left.every(
+      (note, index) =>
+        note.midi === right[index].midi &&
+        Math.abs(note.start - right[index].start) < 1e-3 &&
+        Math.abs(note.beats - right[index].beats) < 1e-3,
+    )
+  );
+}
+
+/**
+ * Si la guía trae las notas de la canción. Las guías viejas guardaban la guía armónica
+ * (fundamental y tercera de cada acorde) como si fuera la melodía: esa no cuenta.
+ */
+export function hasWrittenMelody(guide: SongGuide): boolean {
+  return guide.melody.length > 0 && !sameNotes(guide.melody, lessonMelody(guide.chords));
+}
+
+/** Las notas que suenan. La guía armónica sale de las formas, así que sube con la cejilla. */
+export function soundingMelody(guide: SongGuide): GuideNote[] {
+  const melody = guide.melody.length > 0 ? guide.melody : lessonMelody(guide.chords);
+  if (hasWrittenMelody(guide) || guide.capo === 0) {
+    return melody;
+  }
+  return melody.map((note) => ({ ...note, midi: note.midi + guide.capo }));
 }
 
 function isUntaught(events: StrumEvent[], beatsPerBar: number): boolean {
@@ -433,6 +466,7 @@ export function songFromGuide(record: GuideRecord): Song | null {
     artist: guide.artist,
     songKey: guide.song_key ?? "",
     bpm: guide.bpm,
+    beatsPerBar: guide.beats_per_bar,
     chords: guide.chords.map((chord) => ({
       bar: Math.floor(chord.start / guide.beats_per_bar + EPSILON) + 1,
       beat: Math.round((chord.start % guide.beats_per_bar) * 1000) / 1000 + 1,
@@ -824,4 +858,37 @@ export function retileSection(guide: SongGuide, sectionIndex: number, text: stri
     ...fresh,
   ].sort((left, right) => left.pulse - right.pulse);
   return { ...grid, events };
+}
+
+function isStrike(event: StrumEvent): boolean {
+  return event.contact !== "aire";
+}
+
+/**
+ * El compás que enseña el rasgueo de una sección: el primero donde la guitarra golpea,
+ * con sus aires. Vacío si en la sección la guitarra no toca.
+ */
+export function strumBar(guide: SongGuide, sectionIndex: number): StrumEvent[] {
+  const grid = ensureGrid(guide);
+  const section = grid.sections[sectionIndex];
+  if (!section) {
+    return [];
+  }
+  const end = section.start + section.beats;
+  for (let bar = section.start; bar < end - EPSILON; bar += grid.beats_per_bar) {
+    const barEnd = Math.min(end, bar + grid.beats_per_bar);
+    const inside = grid.events!.filter(
+      (event) => event.pulse >= bar - EPSILON && event.pulse < barEnd - EPSILON,
+    );
+    if (inside.some(isStrike)) {
+      return inside;
+    }
+  }
+  return [];
+}
+
+/** La primera sección donde suena la guitarra: una intro de otro instrumento no enseña nada. */
+export function firstPlayedSection(guide: SongGuide): number {
+  const found = guide.sections.findIndex((_, index) => strumBar(guide, index).length > 0);
+  return found < 0 ? 0 : found;
 }

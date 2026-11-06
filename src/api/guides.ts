@@ -1,4 +1,27 @@
-import type { GuideRecord, GuideStatus, GuideSummary, SongGuide } from "../domain/guide";
+import type {
+  GuideRecord,
+  GuideStatus,
+  GuideSummary,
+  SongGuide,
+  StrumEvent,
+} from "../domain/guide";
+import { ensureGrid } from "../domain/guide";
+
+/** La guía en el formato de la API: el tempo viaja como us_per_quarter. */
+export type WireGuide = Omit<SongGuide, "tempo" | "events"> & {
+  tempo: Array<{ pulse: number; us_per_quarter: number }>;
+  events: StrumEvent[];
+};
+
+/** La app trabaja el tempo en camelCase; la API lo valida en snake_case. */
+export function guideToWire(guide: SongGuide): WireGuide {
+  const grid = ensureGrid(guide);
+  return {
+    ...grid,
+    tempo: grid.tempo!.map((point) => ({ pulse: point.pulse, us_per_quarter: point.usPerQuarter })),
+    events: grid.events!,
+  };
+}
 
 export interface GuideSummaryPayload {
   id: string;

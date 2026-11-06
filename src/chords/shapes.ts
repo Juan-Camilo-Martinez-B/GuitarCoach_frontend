@@ -23,6 +23,7 @@ const COURSE: Record<string, ChordShape> = {
   F: shape("F", [1, 3, 3, 2, 1, 1], [1, 3, 4, 2, 1, 1], 1),
   Bm7: shape("Bm7", [-1, 2, 0, 2, 0, 2], [0, 1, 0, 2, 0, 3]),
   B7: shape("B7", [-1, 2, 1, 2, 0, 2], [0, 2, 1, 3, 0, 4]),
+  E7: shape("E7", [0, 2, 0, 1, 0, 0], [0, 2, 0, 1, 0, 0]),
 };
 
 const SPANISH_CHORD: Record<string, string> = {
@@ -41,6 +42,7 @@ const SPANISH_CHORD: Record<string, string> = {
   Lam: "Am",
   Sim: "Bm",
   Sim7: "Bm7",
+  Mi7: "E7",
 };
 
 const NOTE_NAME: Record<string, string> = {
@@ -239,6 +241,7 @@ export function spanishName(symbol: string): string {
     Bm: "Sim",
     Bm7: "Sim7",
     B7: "Si7",
+    E7: "Mi7",
   };
   return names[key] ?? key;
 }

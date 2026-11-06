@@ -50,6 +50,8 @@ export interface Song {
   songKey: string;
   bpm: number;
   chords: ChartChord[];
+  /** Solo las guías lo saben; sin dato, la carta va en 4/4. */
+  beatsPerBar?: number;
 }
 
 export interface TelemetryEvent {

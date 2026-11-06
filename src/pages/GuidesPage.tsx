@@ -1,43 +1,28 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type DragEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ApiClient, ApiError } from "../api/client";
 import { SOURCE_LABEL, type GuideSummary } from "../domain/guide";
+import { useJourney } from "../store/journey";
 import { useSession } from "../store/session";
+import { TAB_ACCEPT } from "../tab/tabFile";
+import { Icon } from "../ui/Icon";
+import { PageHeader } from "../ui/PageHeader";
 import { StatusMessage } from "../ui/StatusMessage";
+import { TabSources } from "../ui/TabSources";
+import { Term } from "../ui/Term";
 
 const apiUrl = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
-
-type Mode = "pegar" | "archivo" | "audio";
-
-const EXAMPLE = `[Intro]
-G  D  Em  C
-
-[Verso]
-G              D
-(la letra se puede dejar: no se guarda)
-Em             C
-
-Coro:
-| Am . . . | D7 . G . | x2`;
 
 export function GuidesPage() {
   const token = useSession((state) => state.token);
   const notice = useSession((state) => state.notice);
+  const record = useJourney((state) => state.record);
   const navigate = useNavigate();
   const [guides, setGuides] = useState<GuideSummary[]>([]);
-  const [mode, setMode] = useState<Mode>("pegar");
   const [state, setState] = useState<"idle" | "loading" | "error">("idle");
   const [message, setMessage] = useState("");
-  const [title, setTitle] = useState("");
-  const [artist, setArtist] = useState("");
-  const [text, setText] = useState("");
-  const [bpm, setBpm] = useState("");
-  const [time, setTime] = useState("4/4");
-  const [capo, setCapo] = useState("0");
-  const [strum, setStrum] = useState("");
-  const [audio, setAudio] = useState<File | null>(null);
-  const [withMelody, setWithMelody] = useState(false);
-  const [analyzing, setAnalyzing] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const busy = state === "loading";
 
   const load = useCallback(async () => {
     if (!token) {
@@ -59,27 +44,10 @@ export function GuidesPage() {
     void load();
   }, [load]);
 
-  async function paste(event: FormEvent) {
-    event.preventDefault();
-    setState("loading");
-    setMessage("");
-    try {
-      const created = await new ApiClient(apiUrl, fetch, token).pasteGuide({
-        title: title.trim(),
-        artist: artist.trim(),
-        text,
-        bpm: bpm ? Number(bpm) : undefined,
-        time,
-        capo: Number(capo),
-        strum: strum.trim() || undefined,
-      });
-      navigate(`/canciones/${created.id}`);
-    } catch (error) {
-      setState("error");
-      setMessage(error instanceof ApiError ? error.message : "No se pudo leer el texto.");
-    }
-  }
-
+  /**
+   * La tablatura se lee en el navegador: de ahí salen los acordes, los rasgueos y las notas
+   * de la guitarra. El servidor valida la guía y guarda el archivo para tocarlo nota por nota.
+   */
   async function upload(file: File | undefined) {
     if (!file) {
       return;
@@ -87,267 +55,139 @@ export function GuidesPage() {
     setState("loading");
     setMessage("");
     try {
-      const created = await new ApiClient(apiUrl, fetch, token).uploadGuide(file);
+      const { readTab } = await import("../tab/readTab");
+      const guide = await readTab(file);
+      const created = await new ApiClient(apiUrl, fetch, token).guideFromTab(file, guide);
+      record("propia");
       navigate(`/canciones/${created.id}`);
     } catch (error) {
       setState("error");
-      setMessage(error instanceof ApiError ? error.message : "No se pudo leer el archivo.");
-    }
-  }
-
-  async function analyze(event: FormEvent) {
-    event.preventDefault();
-    if (!audio) {
-      return;
-    }
-    setAnalyzing(true);
-    setState("idle");
-    setMessage("");
-    try {
-      const created = await new ApiClient(apiUrl, fetch, token).guideFromAudio(
-        audio,
-        title.trim(),
-        artist.trim(),
-        withMelody,
+      setMessage(
+        error instanceof ApiError || error instanceof Error
+          ? error.message
+          : "No se pudo leer la tablatura.",
       );
-      navigate(`/canciones/${created.id}`);
-    } catch (error) {
-      setState("error");
-      setMessage(error instanceof ApiError ? error.message : "No se pudo analizar el audio.");
-    } finally {
-      setAnalyzing(false);
     }
   }
 
-  if (!token) {
-    return (
-      <main className="page">
-        <header className="page-head">
-          <p className="eyebrow">Tu cancionero</p>
-          <h1>Mis canciones</h1>
-          <p className="lead">
-            Pega los acordes de una canción que quieras aprender y la app arma la guía.
-          </p>
-        </header>
-        <section className="empty-stage">
-          <p>{notice ?? "Tus guías se guardan en tu cuenta."}</p>
-          <Link className="button" to="/entrar">
-            Iniciar sesión
-          </Link>
-        </section>
-      </main>
-    );
+  function onDrop(event: DragEvent<HTMLLabelElement>) {
+    event.preventDefault();
+    setDragging(false);
+    if (!busy) {
+      void upload(event.dataTransfer.files[0]);
+    }
+  }
+
+  const dropClasses = ["dropzone"];
+  if (dragging) {
+    dropClasses.push("is-over");
+  }
+  if (busy) {
+    dropClasses.push("is-busy");
   }
 
   return (
     <main className="page">
-      <header className="page-head">
-        <p className="eyebrow">Tu cancionero</p>
-        <h1>Mis canciones</h1>
-        <p className="lead">
-          Elige una canción, pega sus acordes y practícala por secciones, a tu tempo.
-        </p>
-      </header>
+      <PageHeader icon="music" eyebrow="Tu cancionero" title="Mis canciones">
+        Aprende la canción que tú quieras. Sube su <Term id="tablatura">tablatura</Term> y la app te
+        muestra los <Term id="acorde">acordes</Term> y el <Term id="rasgueo">rasgueo</Term>.
+      </PageHeader>
 
-      <section className="panel guide-new">
-        <h2>Nueva guía</h2>
-        <div className="auth-switch" role="group" aria-label="Cómo crear la guía">
-          <button type="button" aria-pressed={mode === "pegar"} onClick={() => setMode("pegar")}>
-            Pegar acordes
-          </button>
-          <button
-            type="button"
-            aria-pressed={mode === "archivo"}
-            onClick={() => setMode("archivo")}
-          >
-            Subir archivo
-          </button>
-          <button type="button" aria-pressed={mode === "audio"} onClick={() => setMode("audio")}>
-            Desde un audio
-          </button>
+      <section className="panel upload-flow" aria-label="Agregar una canción">
+        <div className="upload-step">
+          <span className="upload-number">1</span>
+          <div className="upload-body">
+            <h2>Consigue el archivo gratis</h2>
+            <p>
+              Necesitas un <Term id="guitar-pro">archivo Guitar Pro</Term>. Busca tu canción en uno
+              de estos sitios y descárgalo.
+            </p>
+            <TabSources />
+          </div>
         </div>
 
-        {mode === "pegar" ? (
-          <form className="stack" onSubmit={(event) => void paste(event)}>
-            <div className="form-grid">
-              <label>
-                Canción
-                <input value={title} onChange={(event) => setTitle(event.target.value)} required />
-              </label>
-              <label>
-                Artista
+        <div className="upload-step">
+          <span className="upload-number">2</span>
+          <div className="upload-body">
+            <h2>Súbelo aquí</h2>
+            {token ? (
+              <label
+                className={dropClasses.join(" ")}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  setDragging(true);
+                }}
+                onDragLeave={() => setDragging(false)}
+                onDrop={onDrop}
+              >
+                <Icon name="upload" size={32} />
+                <strong>{busy ? "Leyendo la tablatura..." : "Elegir tablatura"}</strong>
+                <span>o arrastra el archivo hasta aquí</span>
+                <small>Acepta .gp3, .gp4, .gp5, .gpx y .gp. Máximo 5 MB.</small>
                 <input
-                  value={artist}
-                  onChange={(event) => setArtist(event.target.value)}
-                  required
+                  type="file"
+                  accept={TAB_ACCEPT}
+                  disabled={busy}
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    event.target.value = "";
+                    void upload(file);
+                  }}
                 />
               </label>
-              <label>
-                Tempo (BPM)
-                <input
-                  type="number"
-                  min={20}
-                  max={300}
-                  placeholder="80"
-                  value={bpm}
-                  onChange={(event) => setBpm(event.target.value)}
-                />
-              </label>
-              <label>
-                Compás
-                <select value={time} onChange={(event) => setTime(event.target.value)}>
-                  <option value="4/4">4/4</option>
-                  <option value="3/4">3/4</option>
-                  <option value="6/8">6/8</option>
-                  <option value="2/4">2/4</option>
-                </select>
-              </label>
-              <label>
-                Cejilla
-                <input
-                  type="number"
-                  min={0}
-                  max={12}
-                  value={capo}
-                  onChange={(event) => setCapo(event.target.value)}
-                />
-              </label>
-              <label>
-                Rasgueo
-                <input
-                  placeholder="D-DU-UDU"
-                  value={strum}
-                  onChange={(event) => setStrum(event.target.value)}
-                />
-              </label>
-            </div>
-            <label>
-              Acordes
-              <textarea
-                rows={12}
-                placeholder={EXAMPLE}
-                value={text}
-                onChange={(event) => setText(event.target.value)}
-                required
-              />
-            </label>
-            <button type="submit" disabled={state === "loading"}>
-              Crear la guía
-            </button>
-          </form>
-        ) : mode === "archivo" ? (
-          <div className="stack">
-            <p>
-              <strong>ChordPro</strong> (.cho, .chopro, .pro, .txt) o <strong>MusicXML</strong> sin
-              comprimir (.musicxml). MuseScore exporta MusicXML desde Archivo → Exportar.
-            </p>
-            <label className="button file-button">
-              Elegir archivo
-              <input
-                type="file"
-                accept=".cho,.chopro,.pro,.txt,.musicxml,.xml"
-                onChange={(event) => void upload(event.target.files?.[0])}
-              />
-            </label>
+            ) : (
+              <div className="stack">
+                <p className="note">{notice ?? "Tus guías se guardan en tu cuenta."}</p>
+                <div className="actions">
+                  <Link className="button" to="/entrar">
+                    <Icon name="user" size={18} />
+                    Iniciar sesión
+                  </Link>
+                  <Link className="button button-ghost" to="/entrar?alta=1">
+                    Crear cuenta gratis
+                  </Link>
+                </div>
+              </div>
+            )}
           </div>
-        ) : (
-          <form className="stack" onSubmit={(event) => void analyze(event)}>
-            <p>
-              Sube una grabación tuya (WAV, MP3, OGG o FLAC, hasta 10 MB y 6 minutos). La app
-              detecta el pulso y los acordes y arma un borrador para que lo corrijas. Funciona mejor
-              con guitarra sola que con la canción completa mezclada. El audio no se guarda: se
-              borra al terminar el análisis.
-            </p>
-            <div className="form-grid">
-              <label>
-                Canción
-                <input value={title} onChange={(event) => setTitle(event.target.value)} required />
-              </label>
-              <label>
-                Artista
-                <input
-                  value={artist}
-                  onChange={(event) => setArtist(event.target.value)}
-                  required
-                />
-              </label>
-            </div>
-            <label className="button file-button">
-              {audio ? `Audio: ${audio.name}` : "Elegir audio"}
-              <input
-                type="file"
-                accept="audio/wav,audio/mpeg,audio/ogg,audio/flac,.wav,.mp3,.ogg,.flac"
-                onChange={(event) => setAudio(event.target.files?.[0] ?? null)}
-              />
-            </label>
-            <label className="check">
-              <input
-                type="checkbox"
-                checked={withMelody}
-                onChange={(event) => setWithMelody(event.target.checked)}
-              />
-              Es una melodía o un punteo de una sola voz: detectar también las notas
-            </label>
-            {analyzing ? (
-              <p className="note" role="status">
-                Analizando el audio. Puede tardar hasta un minuto.
-              </p>
-            ) : null}
-            <button type="submit" disabled={!audio || analyzing}>
-              Analizar y crear la guía
-            </button>
-          </form>
-        )}
+        </div>
 
-        <details className="guide-help">
-          <summary>Dónde conseguir los acordes y cómo escribirlos</summary>
-          <ul>
-            <li>
-              Copia los acordes de un cancionero como LaCuerda.net, Cifra Club o Ultimate Guitar y
-              pégalos aquí, para tu práctica personal. La letra no se guarda.
-            </li>
-            <li>Cada acorde suelto vale un compás. Una línea que termina en x2 se repite.</li>
-            <li>
-              Con barras, cada tramo es un compás: <code>| D7 . G . |</code> son dos acordes de dos
-              tiempos. <code>%</code> repite el compás anterior.
-            </li>
-            <li>
-              Las secciones se marcan con <code>[Intro]</code>, <code>Coro:</code> o{" "}
-              <code>[Verso 1]</code>.
-            </li>
-            <li>
-              El rasgueo va en casilleros: <code>D-DU-UDU</code> son ocho corcheas (D abajo, U
-              arriba, X apagado, - silencio).
-            </li>
-          </ul>
-        </details>
+        <div className="upload-step">
+          <span className="upload-number">3</span>
+          <div className="upload-body">
+            <h2>Practícala a tu ritmo</h2>
+            <p>Escúchala, baja la velocidad y repite solo la parte que te cueste.</p>
+          </div>
+        </div>
       </section>
 
       <StatusMessage state={state} message={message} />
 
-      <section className="panel">
-        <h2>Tus guías</h2>
-        {guides.length === 0 ? (
-          <p className="hint">Todavía no tienes guías. Crea la primera arriba.</p>
-        ) : (
-          <ul className="guide-list">
-            {guides.map((guide) => (
-              <li key={guide.id}>
-                <Link to={`/canciones/${guide.id}`} className="guide-card">
-                  <span className="guide-card-title">{guide.title}</span>
-                  <span className="guide-card-meta">
-                    {guide.artist} · {guide.bpm} BPM ·{" "}
-                    {SOURCE_LABEL[guide.sourceKind] ?? guide.sourceKind}
-                  </span>
-                  <span className={`guide-status is-${guide.status}`}>
-                    {guide.status === "revisada" ? "Revisada" : "Borrador"}
-                  </span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+      {token ? (
+        <section className="panel">
+          <h2>Tus canciones</h2>
+          {guides.length === 0 ? (
+            <p className="hint">Todavía no tienes canciones. Sube la primera arriba.</p>
+          ) : (
+            <ul className="guide-list" style={{ marginTop: "0.75rem" }}>
+              {guides.map((guide) => (
+                <li key={guide.id}>
+                  <Link to={`/canciones/${guide.id}`} className="guide-card">
+                    <span className="guide-card-title">{guide.title}</span>
+                    <span className="guide-card-meta">
+                      {guide.artist} · {guide.bpm} BPM ·{" "}
+                      {SOURCE_LABEL[guide.sourceKind] ?? guide.sourceKind}
+                    </span>
+                    <span className={`guide-status is-${guide.status}`}>
+                      {guide.status === "revisada" ? "Revisada" : "Borrador"}
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      ) : null}
     </main>
   );
 }

@@ -4,8 +4,15 @@ import { ApiClient, ApiError } from "../api/client";
 import { signIn } from "../auth/signIn";
 import { signUp } from "../auth/signUp";
 import { useSession } from "../store/session";
+import { Icon } from "../ui/Icon";
 
 const apiUrl = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+
+const BENEFITS = [
+  "Guarda tu avance en el curso.",
+  "Sube tus canciones y practícalas cuando quieras.",
+  "Recibe un informe con qué mejorar después de tocar.",
+];
 
 export function AuthPage() {
   const token = useSession((state) => state.token);
@@ -67,61 +74,75 @@ export function AuthPage() {
 
   return (
     <main className="page page-narrow">
-      <section className="panel auth-card">
-        <p className="eyebrow">Acceso</p>
-        <h1>{mode === "alta" ? "Crear cuenta" : "Iniciar sesión"}</h1>
-        <div className="auth-switch" role="tablist" aria-label="Elegir acceso">
-          <button
-            type="button"
-            role="tab"
-            aria-pressed={mode === "entrar"}
-            onClick={() => choose("entrar")}
-          >
-            Iniciar sesión
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-pressed={mode === "alta"}
-            onClick={() => choose("alta")}
-          >
-            Crear cuenta
-          </button>
-        </div>
-        <form className="stack" onSubmit={onSubmit}>
-          {mode === "alta" ? (
-            <label>
-              Nombre
-              <input value={name} onChange={(event) => setName(event.target.value)} required />
-            </label>
-          ) : null}
-          <label>
-            Correo
-            <input
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              type="email"
-              required
-            />
-          </label>
-          <label>
-            Contraseña
-            <input
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              type="password"
-              minLength={mode === "alta" ? 8 : undefined}
-              required
-            />
-          </label>
-          <button type="submit">{mode === "alta" ? "Crear cuenta" : "Entrar"}</button>
-        </form>
-        {message ? (
-          <p className="status-pill" role="status">
-            {message}
+      <div className="auth-layout">
+        <section className="auth-pitch" aria-label="Para qué sirve una cuenta">
+          <p className="eyebrow">Es gratis</p>
+          <h2>Tu cuenta guarda todo lo que aprendes</h2>
+          <ul>
+            {BENEFITS.map((benefit) => (
+              <li key={benefit}>
+                <Icon name="check" />
+                {benefit}
+              </li>
+            ))}
+          </ul>
+          <p className="hint">
+            ¿Solo quieres probar? <Link to="/aprendizaje">Mira el curso sin cuenta</Link>.
           </p>
-        ) : null}
-      </section>
+        </section>
+        <section className="panel auth-card">
+          <h1>{mode === "alta" ? "Crear cuenta" : "Iniciar sesión"}</h1>
+          <div className="auth-switch" role="group" aria-label="Elegir acceso">
+            <button type="button" aria-pressed={mode === "entrar"} onClick={() => choose("entrar")}>
+              Iniciar sesión
+            </button>
+            <button type="button" aria-pressed={mode === "alta"} onClick={() => choose("alta")}>
+              Crear cuenta
+            </button>
+          </div>
+          <form className="stack" onSubmit={onSubmit}>
+            {mode === "alta" ? (
+              <label>
+                Nombre
+                <input
+                  value={name}
+                  autoComplete="name"
+                  onChange={(event) => setName(event.target.value)}
+                  required
+                />
+              </label>
+            ) : null}
+            <label>
+              Correo
+              <input
+                value={email}
+                autoComplete="email"
+                onChange={(event) => setEmail(event.target.value)}
+                type="email"
+                required
+              />
+            </label>
+            <label>
+              Contraseña
+              <input
+                value={password}
+                autoComplete={mode === "alta" ? "new-password" : "current-password"}
+                onChange={(event) => setPassword(event.target.value)}
+                type="password"
+                minLength={mode === "alta" ? 8 : undefined}
+                required
+              />
+              {mode === "alta" ? <small className="hint">Al menos 8 caracteres.</small> : null}
+            </label>
+            <button type="submit">{mode === "alta" ? "Crear cuenta" : "Entrar"}</button>
+          </form>
+          {message ? (
+            <p className="alert" role="status">
+              {message}
+            </p>
+          ) : null}
+        </section>
+      </div>
     </main>
   );
 }

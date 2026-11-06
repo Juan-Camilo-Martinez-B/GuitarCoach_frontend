@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ApiClient, ApiError } from "../api/client";
 import { playGuide, playStrum, stopGuitar, warmShape } from "../audio/guitarTone";
@@ -7,13 +7,17 @@ import type { StrumHit } from "../domain/course";
 import {
   bpmFromUs,
   ensureGrid,
+  firstPlayedSection,
   guideHits,
   hasInferredTiming,
+  hasWrittenMelody,
   lessonHint,
   prepareLesson,
   pulseToSeconds,
   sectionPattern,
   songFromGuide,
+  soundingMelody,
+  strumBar,
   SOURCE_LABEL,
   totalBeats,
   usAt,
@@ -22,13 +26,22 @@ import {
   type GuideStatus,
   type SongGuide,
 } from "../domain/guide";
+import { useJourney } from "../store/journey";
 import { rememberVisit } from "../store/lastVisit";
 import { useSession } from "../store/session";
 import { ChordFigure } from "../ui/ChordDiagram";
 import { GuideEditor } from "../ui/GuideEditor";
+import { Icon } from "../ui/Icon";
+import { EmptyState, PageHeader } from "../ui/PageHeader";
 import { StatusMessage } from "../ui/StatusMessage";
 import { queueStrumMarks } from "../ui/strumMarks";
 import { StrumRail } from "../ui/StrumRail";
+import { Term } from "../ui/Term";
+
+// alphaTab pesa más que el resto de la app: solo se descarga si la guía trae tablatura.
+const TabPlayer = lazy(() =>
+  import("../ui/TabPlayer").then((module) => ({ default: module.TabPlayer })),
+);
 
 const apiUrl = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 const RATES = [0.75, 0.85, 1, 1.1, 1.2, 1.275, 1.3, 1.45];
@@ -73,11 +86,13 @@ export function GuidePage() {
   const [rate, setRate] = useState(1);
   const [countIn, setCountIn] = useState(true);
   const [metronome, setMetronome] = useState(false);
-  const [withMelody, setWithMelody] = useState(true);
+  const [withMelody, setWithMelody] = useState(false);
   const [loop, setLoop] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [now, setNow] = useState<Now | null>(null);
   const [editing, setEditing] = useState(false);
+  // Con tablatura se elige la vista; por defecto, acordes y rasgueo para tocar.
+  const [view, setView] = useState<"acordes" | "partitura">("acordes");
   const [state, setState] = useState<"idle" | "loading" | "error">("loading");
   const [message, setMessage] = useState("");
   const timers = useRef<number[]>([]);
@@ -85,7 +100,35 @@ export function GuidePage() {
   loopRef.current = loop;
 
   const source = record?.guide ?? null;
+  const [tab, setTab] = useState<ArrayBuffer | null>(null);
+  const hasTab = record?.sourceKind === "tablatura";
+
+  useEffect(() => {
+    if (!hasTab || !token) {
+      setTab(null);
+      return;
+    }
+    let live = true;
+    void new ApiClient(apiUrl, fetch, token)
+      .guideTab(guideId)
+      .then((bytes) => live && setTab(bytes))
+      .catch(() => live && setMessage("No se pudo abrir la tablatura de esta guía."));
+    return () => {
+      live = false;
+    };
+  }, [guideId, hasTab, token]);
   const guide = useMemo(() => (source ? prepareLesson(ensureGrid(source)) : null), [source]);
+  const writtenMelody = useMemo(() => (source ? hasWrittenMelody(source) : false), [source]);
+  // En una tablatura sin punteo no hay melodía: no se ofrece la guía armónica en su lugar.
+  const melody = useMemo(
+    () => (guide && !(hasTab && !writtenMelody) ? soundingMelody(guide) : []),
+    [guide, hasTab, writtenMelody],
+  );
+
+  // La guía armónica no es la canción: solo suena si el alumno la pide.
+  useEffect(() => {
+    setWithMelody(writtenMelody);
+  }, [writtenMelody]);
 
   const load = useCallback(async () => {
     if (!token) {
@@ -150,10 +193,11 @@ export function GuidePage() {
     const to = section ? section.start + section.beats : totalBeats(guide);
     const hits = guideHits(guide, from, to);
     const notes = withMelody
-      ? guide.melody
+      ? melody
           .filter((note) => note.start >= from - 1e-6 && note.start < to - 1e-6)
           .map((note) => ({ ...note, start: note.start - from }))
       : [];
+    useJourney.getState().record();
     setPlaying(true);
     let delay: number | null;
     try {
@@ -202,7 +246,7 @@ export function GuidePage() {
         setNow(null);
       },
     );
-  }, [countIn, guide, metronome, range, rate, shapes, withMelody]);
+  }, [countIn, guide, melody, metronome, range, rate, shapes, withMelody]);
 
   async function save(next: SongGuide, status: GuideStatus) {
     setState("loading");
@@ -240,7 +284,12 @@ export function GuidePage() {
     navigate("/practica");
   }
 
-  const focusSection = now?.section ?? (range === "all" ? 0 : range);
+  const opening = useMemo(() => (guide ? firstPlayedSection(guide) : 0), [guide]);
+  const focusSection = now?.section ?? (range === "all" ? opening : range);
+  const focusStrum = useMemo(
+    () => (guide ? strumBar(guide, focusSection) : []),
+    [focusSection, guide],
+  );
   const focusChord = useMemo(() => {
     if (!guide) {
       return -1;
@@ -249,18 +298,24 @@ export function GuidePage() {
       return now.chord;
     }
     const start = guide.sections[focusSection]?.start ?? 0;
-    return guide.chords.findIndex((chord) => chord.start >= start - 1e-6);
+    // El acorde que está sonando cuando empieza la sección, aunque venga de antes.
+    const sounding = guide.chords.findIndex(
+      (chord) => chord.start <= start + 1e-6 && start < chord.start + chord.beats - 1e-6,
+    );
+    return sounding >= 0
+      ? sounding
+      : guide.chords.findIndex((chord) => chord.start >= start - 1e-6);
   }, [focusSection, guide, now]);
 
   if (!token) {
     return (
       <main className="page">
-        <section className="empty-stage">
+        <EmptyState icon="lock">
           <p>{notice ?? "Inicia sesión para abrir tus guías."}</p>
           <Link className="button" to="/entrar">
             Iniciar sesión
           </Link>
-        </section>
+        </EmptyState>
       </main>
     );
   }
@@ -269,7 +324,10 @@ export function GuidePage() {
     return (
       <main className="page">
         <StatusMessage state={state} message={message} />
-        <Link to="/canciones">Volver a mis canciones</Link>
+        <Link className="button button-ghost" to="/canciones">
+          <Icon name="arrowLeft" size={18} />
+          Volver a mis canciones
+        </Link>
       </main>
     );
   }
@@ -279,25 +337,45 @@ export function GuidePage() {
 
   return (
     <main className="page">
-      <header className="page-head">
-        <p className="eyebrow">
-          <Link to="/canciones">Mis canciones</Link> ·{" "}
-          {SOURCE_LABEL[record.sourceKind] ?? record.sourceKind}
+      <Link className="back-link" to="/canciones">
+        <Icon name="arrowLeft" size={18} />
+        Mis canciones
+      </Link>
+      <PageHeader
+        icon="music"
+        eyebrow={SOURCE_LABEL[record.sourceKind] ?? record.sourceKind}
+        title={guide.title}
+      >
+        {guide.artist}
+        <div className="chip-row">
+          <span className="chip">
+            {Math.round(bpmFromUs(usAt(0, guide.tempo ?? [])) * rate)} <Term id="bpm">BPM</Term>
+          </span>
+          <span className="chip">
+            <Term id="compas">Compás</Term> de {guide.beats_per_bar}
+          </span>
+          {guide.tempo && guide.tempo.length > 1 ? (
+            <span className="chip">El tempo cambia en la canción</span>
+          ) : null}
+          {guide.capo > 0 ? (
+            <span className="chip">
+              <Term id="cejilla">Cejilla</Term> en el traste {guide.capo}
+            </span>
+          ) : null}
+          <span className={`guide-status is-${record.status}`}>
+            {record.status === "revisada" ? "Revisada" : "Borrador: revisa los acordes"}
+          </span>
+        </div>
+      </PageHeader>
+      {guide.events?.some((event) => event.origin === "leccion") ? (
+        <p className="note">{lessonHint(guide.beats_per_bar)} Escucha y luego tócalo igual.</p>
+      ) : null}
+      {writtenMelody || hasTab ? null : (
+        <p className="note">
+          Esta guía solo trae acordes, no las notas de la canción. Para oír cada nota tal como
+          suena, sube su tablatura de Guitar Pro en <Link to="/canciones">Mis canciones</Link>.
         </p>
-        <h1>{guide.title}</h1>
-        <p className="lead">
-          {guide.artist} · {Math.round(bpmFromUs(usAt(0, guide.tempo ?? [])) * rate)} BPM · compás
-          de {guide.beats_per_bar}
-          {guide.tempo && guide.tempo.length > 1 ? " · el tempo cambia en la canción" : ""}
-          {guide.capo > 0 ? ` · cejilla en el traste ${guide.capo}` : ""}
-        </p>
-        {guide.events?.some((event) => event.origin === "leccion") ? (
-          <p className="lead">{lessonHint(guide.beats_per_bar)} Escucha y luego tócalo igual.</p>
-        ) : null}
-        <span className={`guide-status is-${record.status}`}>
-          {record.status === "revisada" ? "Revisada" : "Borrador: revisa los acordes"}
-        </span>
-      </header>
+      )}
 
       <StatusMessage state={state} message={message} />
       {state === "idle" && message ? (
@@ -314,11 +392,86 @@ export function GuidePage() {
           onCancel={() => setEditing(false)}
         />
       ) : (
+        <div className="guide-toolbar">
+          {hasTab ? (
+            <div className="auth-switch guide-view" role="group" aria-label="Vista de la canción">
+              <button
+                type="button"
+                aria-pressed={view === "acordes"}
+                onClick={() => setView("acordes")}
+              >
+                Acordes y rasgueo
+              </button>
+              <button
+                type="button"
+                aria-pressed={view === "partitura"}
+                onClick={() => {
+                  stop();
+                  setView("partitura");
+                }}
+              >
+                Partitura
+              </button>
+            </div>
+          ) : (
+            <span />
+          )}
+          <button
+            type="button"
+            className="button-ghost"
+            onClick={() => {
+              stop();
+              setEditing(true);
+            }}
+          >
+            <Icon name="edit" size={18} />
+            Ajustar la carta
+          </button>
+        </div>
+      )}
+
+      {!editing && hasTab && view === "partitura" ? (
+        tab ? (
+          <Suspense fallback={<p className="hint">Cargando la tablatura...</p>}>
+            <TabPlayer data={tab} />
+          </Suspense>
+        ) : (
+          <p className="hint">Cargando la tablatura...</p>
+        )
+      ) : null}
+
+      {editing || (hasTab && view === "partitura") ? null : (
         <>
           <section className="panel guide-player" aria-label="Reproductor">
+            <div className="actions player-actions">
+              {playing ? (
+                <button type="button" className="button-large is-listening" onClick={stop}>
+                  <Icon name="stop" />
+                  Detener
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="button-large"
+                  onClick={() => void play()}
+                  disabled={shapes.length === 0}
+                >
+                  <Icon name="play" />
+                  Escuchar
+                </button>
+              )}
+              <button
+                type="button"
+                className="button-ghost button-large"
+                onClick={() => void practice()}
+              >
+                <Icon name="mic" />
+                Practicar con el micrófono
+              </button>
+            </div>
             <div className="player-controls">
               <label>
-                Tramo
+                Qué parte tocar
                 <select
                   value={range === "all" ? "all" : String(range)}
                   onChange={(event) => {
@@ -354,7 +507,7 @@ export function GuidePage() {
                   checked={countIn}
                   onChange={(event) => setCountIn(event.target.checked)}
                 />
-                Cuenta de entrada
+                <Term id="cuenta-entrada">Cuenta de entrada</Term>
               </label>
               <label className="check">
                 <input
@@ -362,7 +515,7 @@ export function GuidePage() {
                   checked={metronome}
                   onChange={(event) => setMetronome(event.target.checked)}
                 />
-                Metrónomo
+                <Term id="metronomo">Metrónomo</Term>
               </label>
               <label className="check">
                 <input
@@ -372,44 +525,20 @@ export function GuidePage() {
                 />
                 Repetir
               </label>
-              {guide.melody.length > 0 ? (
+              {melody.length > 0 ? (
                 <label className="check">
                   <input
                     type="checkbox"
                     checked={withMelody}
                     onChange={(event) => setWithMelody(event.target.checked)}
                   />
-                  Melodía
+                  {writtenMelody ? "Melodía" : <Term id="guia-armonica">Guía armónica</Term>}
                 </label>
               ) : null}
             </div>
-            <div className="actions">
-              {playing ? (
-                <button type="button" onClick={stop}>
-                  Detener
-                </button>
-              ) : (
-                <button type="button" onClick={() => void play()} disabled={shapes.length === 0}>
-                  Escuchar
-                </button>
-              )}
-              <button type="button" className="button-ghost" onClick={() => void practice()}>
-                Practicar con el micrófono
-              </button>
-              <button
-                type="button"
-                className="button-ghost"
-                onClick={() => {
-                  stop();
-                  setEditing(true);
-                }}
-              >
-                Ajustar la carta
-              </button>
-            </div>
           </section>
 
-          <section className="panel song-lesson guide-now">
+          <section className="panel guide-now">
             {current ? (
               <div className="guide-now-chords">
                 <div>
@@ -418,7 +547,7 @@ export function GuidePage() {
                 </div>
                 {following ? (
                   <div className="guide-next">
-                    <p className="eyebrow">Después</p>
+                    <p className="eyebrow">Sigue</p>
                     <strong>{spanishName(following.chord)}</strong>
                   </div>
                 ) : null}
@@ -438,36 +567,34 @@ export function GuidePage() {
 
           <section className="panel guide-grid" aria-label="Rasgueo de la lección">
             <h2>Rasgueo de {guide.sections[focusSection]?.name}</h2>
-            <p className="hint">
-              Escucha y copia estas flechas. El número es cuántos tiempos dura cada golpe. Aire no
-              suena y deja sonar el acorde.
-            </p>
-            <div className="event-strip">
-              {guide.events?.map((event, index) => {
-                const section = guide.sections[focusSection];
-                if (
-                  !section ||
-                  event.pulse < section.start - 1e-6 ||
-                  event.pulse >= section.start + section.beats - 1e-6
-                ) {
-                  return null;
-                }
-                const label =
-                  event.contact === "aire"
-                    ? "aire"
-                    : event.direction === "arriba"
-                      ? "↑"
-                      : event.direction === "apagado"
-                        ? "×"
-                        : "↓";
-                return (
-                  <span key={`${event.pulse}-${index}`} className="event-chip">
-                    <span>{label}</span>
-                    <small>{event.span}</small>
-                  </span>
-                );
-              })}
-            </div>
+            {focusStrum.length === 0 ? (
+              <p className="hint">En esta sección la guitarra no toca.</p>
+            ) : (
+              <>
+                <p className="hint">
+                  Copia estas flechas: ↓ mano hacia abajo, ↑ hacia arriba y × golpe apagado. El
+                  número indica cuántos tiempos dura. «Aire» no toca: deja sonar el acorde.
+                </p>
+                <div className="event-strip">
+                  {focusStrum.map((event, index) => {
+                    const label =
+                      event.contact === "aire"
+                        ? "aire"
+                        : event.direction === "arriba"
+                          ? "↑"
+                          : event.direction === "apagado"
+                            ? "×"
+                            : "↓";
+                    return (
+                      <span key={`${event.pulse}-${index}`} className="event-chip">
+                        <span>{label}</span>
+                        <small>{event.span}</small>
+                      </span>
+                    );
+                  })}
+                </div>
+              </>
+            )}
           </section>
         </>
       )}

@@ -1,38 +1,88 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { ApiClient, ApiError } from "../api/client";
-import { playChord, playPattern, playSlots, playStrum, stopGuitar } from "../audio/guitarTone";
 import { chordCandidates } from "../audio/dsp/chordRecognizer";
-import { vote } from "../audio/dsp/chordTemplates";
-import { startChordMonitor } from "../audio/tuner/listen";
+import { playChord, playPattern, playSlots, playStrum, stopGuitar } from "../audio/guitarTone";
+import type { ListenerEvent } from "../audio/listening/guitarListener";
+import {
+  ChordEvidence,
+  ChordScoreFollower,
+  type ChordSlot,
+} from "../audio/listening/scoreFollower";
+import {
+  GUITAR_MIC,
+  startGuitarListener,
+  stopTracks,
+  type ListeningSession,
+} from "../audio/tuner/listen";
 import { shapeFor, spanishName } from "../chords/shapes";
 import { patternForTitle } from "../domain/course";
 import type { Song, SongStudy, StudyStep } from "../domain/types";
 import { layoutChart } from "../game/ChartRenderer";
 import { judgementVerdict } from "../game/chordVerdict";
 import { practiceCommand, type GamePhase } from "../game/GameLoop";
+import { useJourney } from "../store/journey";
 import { useSession } from "../store/session";
+import { useOnSignOut } from "../store/useOnSignOut";
 import { ChordFigure } from "../ui/ChordDiagram";
+import { Icon } from "../ui/Icon";
+import { EmptyState, PageHeader } from "../ui/PageHeader";
 import { queueStrumMarks } from "../ui/strumMarks";
 import { StrumRail } from "../ui/StrumRail";
+import { GlossaryText, Term } from "../ui/Term";
 
 const apiUrl = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 
 type Drill = "acorde" | "rasgueo" | "progresion";
 type Mark = "bien" | "no";
-type StopListening = () => void | Promise<void>;
+type VerdictKind = "espera" | Mark;
 
-function chordAt(bar: number, beat: number, bpm: number): number {
-  return ((bar - 1) * 4 + (beat - 1)) * (60000 / bpm);
+const DRILLS: Array<{ id: Drill; title: string; text: string }> = [
+  {
+    id: "acorde",
+    title: "Acorde solo",
+    text: "Arma un acorde. El micrófono te dice si suena bien.",
+  },
+  {
+    id: "rasgueo",
+    title: "Acorde y rasgueo",
+    text: "Suma el movimiento de la mano con las flechas.",
+  },
+  {
+    id: "progresion",
+    title: "Progresión",
+    text: "Toca los acordes a tiempo y guarda tu resultado.",
+  },
+];
+
+const SPEEDS = [1, 0.75, 0.5];
+const MIN_BPM = 20;
+const MAX_BPM = 300;
+const START_MARGIN_SECONDS = 0.15;
+const CURSOR_TICK_MS = 30;
+// Se espera a las ventanas largas antes de cerrar un tramo.
+const SLOT_GRACE_SECONDS = 0.25;
+const FINISH_GRACE_SECONDS = 0.5;
+const MISSED_DELTA_MS = 1000;
+const MAX_LATENCY_MS = 500;
+
+function beatPosition(step: StudyStep, beatsPerBar: number): number {
+  return (step.bar - 1) * beatsPerBar + (step.beat - 1);
 }
 
-function beatsOf(steps: StudyStep[], index: number): number {
-  const start = (steps[index].bar - 1) * 4 + (steps[index].beat - 1);
+function beatsOf(steps: StudyStep[], index: number, beatsPerBar: number): number {
+  const start = beatPosition(steps[index], beatsPerBar);
   const next = steps[index + 1];
   if (next) {
-    return Math.max(0.5, (next.bar - 1) * 4 + (next.beat - 1) - start);
+    return Math.max(0.5, beatPosition(next, beatsPerBar) - start);
   }
-  return 4 - ((steps[index].beat - 1) % 4);
+  return beatsPerBar - ((steps[index].beat - 1) % beatsPerBar);
+}
+
+function micErrorText(hasDevice: boolean): string {
+  return hasDevice
+    ? "Permiso de micrófono denegado. Actívalo en el candado de la barra de direcciones."
+    : "Este navegador no abrió el micrófono.";
 }
 
 export function PracticePage() {
@@ -40,6 +90,7 @@ export function PracticePage() {
   const study = useSession((state) => state.study);
   const token = useSession((state) => state.token);
   const setLastAttemptId = useSession((state) => state.setLastAttemptId);
+  const record = useJourney((state) => state.record);
   const [drill, setDrill] = useState<Drill>("acorde");
   const [phase, setPhase] = useState<GamePhase>("idle");
   const [active, setActive] = useState(-1);
@@ -48,145 +99,214 @@ export function PracticePage() {
   const [marks, setMarks] = useState<Record<number, Mark>>({});
   const [verdict, setVerdict] = useState("Pulsa Escuchar mi guitarra y toca el acorde.");
   const [listening, setListening] = useState(false);
-  const [verdictKind, setVerdictKind] = useState<"espera" | Mark>("espera");
-  const stopRef = useRef<StopListening | null>(null);
-  const heardRef = useRef<Array<string | null>>([]);
-  const hitsRef = useRef<Map<number, { detected: string | null; deltaMs: number }>>(new Map());
-  const startedRef = useRef(0);
-  const savingRef = useRef(false);
+  const [verdictKind, setVerdictKind] = useState<VerdictKind>("espera");
+  const [speed, setSpeed] = useState(1);
+  const [metronome, setMetronome] = useState(false);
+  const [savedAttemptId, setSavedAttemptId] = useState<string | null>(null);
+  const [saveFailed, setSaveFailed] = useState(false);
+  const sessionRef = useRef<ListeningSession | null>(null);
+  const micTicketRef = useRef(0);
+  const evidenceRef = useRef(new ChordEvidence());
+  const followerRef = useRef<ChordScoreFollower | null>(null);
+  const cursorRef = useRef(0);
+  // Hay un intento por cerrar: evita guardarlo dos veces o guardar uno que no empezó.
+  const attemptOpenRef = useRef(false);
+  const latencyMsRef = useRef(0);
   const listenRef = useRef<number[]>([]);
   const listenTicket = useRef(0);
   const symbolRef = useRef("");
   const drillRef = useRef<Drill>("acorde");
-  const endTimer = useRef(0);
   drillRef.current = drill;
 
   const steps = song ? practiceSteps(song, study) : [];
+  const beatsPerBar = song?.beatsPerBar ?? 4;
   const practicePattern = useSession((state) => state.practicePattern);
   const pattern = practicePattern ?? patternForTitle(song?.title ?? "");
   symbolRef.current = steps[picked]?.symbol ?? steps[0]?.symbol ?? "";
-
-  useEffect(() => {
-    return () => {
-      listenRef.current.forEach((id) => window.clearTimeout(id));
-      window.clearTimeout(endTimer.current);
-      void stopRef.current?.();
-      stopGuitar();
-    };
-  }, []);
-
   const songSymbols = [...new Set(steps.map((item) => item.symbol))];
   const symbolsRef = useRef<string[]>([]);
   symbolsRef.current = songSymbols;
 
+  function closeMicrophone() {
+    // Invalida cualquier apertura en curso: el permiso puede llegar después de cerrar.
+    micTicketRef.current += 1;
+    window.clearInterval(cursorRef.current);
+    sessionRef.current?.stop();
+    sessionRef.current = null;
+    setListening(false);
+  }
+
+  useEffect(() => {
+    return () => {
+      micTicketRef.current += 1;
+      listenRef.current.forEach((id) => window.clearTimeout(id));
+      window.clearInterval(cursorRef.current);
+      sessionRef.current?.stop();
+      sessionRef.current = null;
+      stopGuitar();
+    };
+  }, []);
+
+  function forgetAttempt() {
+    attemptOpenRef.current = false;
+    followerRef.current = null;
+    setSavedAttemptId(null);
+    setSaveFailed(false);
+  }
+
+  useOnSignOut(() => {
+    const micWasOn = listening || phase === "playing";
+    closeMicrophone();
+    listenRef.current.forEach((id) => window.clearTimeout(id));
+    stopGuitar();
+    setPhase("idle");
+    setActive(-1);
+    setMarks({});
+    forgetAttempt();
+    if (micWasOn) {
+      setVerdict("La sesión se cerró y el micrófono quedó apagado.");
+      setVerdictKind("espera");
+    }
+  });
+
   async function openMicrophone(): Promise<MediaStream | null> {
+    const ticket = micTicketRef.current;
     const media = navigator.mediaDevices?.getUserMedia?.bind(navigator.mediaDevices);
     if (!media) {
-      setVerdict("Este navegador no abrió el micrófono.");
+      setVerdict(micErrorText(false));
       setVerdictKind("no");
       return null;
     }
     try {
-      const stream = await media({ audio: true });
+      const stream = await media(GUITAR_MIC);
+      if (ticket !== micTicketRef.current) {
+        stopTracks(stream);
+        return null;
+      }
       return stream instanceof MediaStream ? stream : null;
     } catch {
-      setVerdict(
-        "Permiso de micrófono denegado. Actívalo en el candado de la barra de direcciones.",
-      );
-      setVerdictKind("no");
+      if (ticket === micTicketRef.current) {
+        setVerdict(micErrorText(true));
+        setVerdictKind("no");
+      }
       return null;
     }
   }
 
-  async function stopListening() {
-    await stopRef.current?.();
-    stopRef.current = null;
-    setListening(false);
+  /** Empieza a escuchar, salvo que el micrófono se haya cerrado mientras arrancaba. */
+  async function listenTo(
+    stream: MediaStream,
+    options: Parameters<typeof startGuitarListener>[1],
+    onEvent: (event: ListenerEvent) => void,
+  ): Promise<ListeningSession | null> {
+    const ticket = micTicketRef.current;
+    const session = await startGuitarListener(stream, options, onEvent);
+    if (ticket !== micTicketRef.current) {
+      session.stop();
+      return null;
+    }
+    sessionRef.current = session;
+    return session;
+  }
+
+  /** Escucha libre de un acorde: cada rasgueo empieza un veredicto nuevo. */
+  function onFreeChordEvent(event: ListenerEvent) {
+    if (event.type === "onset") {
+      evidenceRef.current = new ChordEvidence();
+      return;
+    }
+    if (event.type !== "chord") {
+      return;
+    }
+    const expected = symbolRef.current;
+    if (!expected) {
+      return;
+    }
+    const evidence = evidenceRef.current;
+    evidence.add(event.chroma, event.windowSize, chordCandidates(expected, symbolsRef.current));
+    const judgement = evidence.judge(expected);
+    if (judgement.heard === null) {
+      return;
+    }
+    const result = judgementVerdict(judgement.heard, judgement.ok, expected);
+    setVerdict(
+      drillRef.current === "rasgueo" && result.kind === "bien"
+        ? `Bien. ${spanishName(expected)} con el rasgueo.`
+        : result.text,
+    );
+    setVerdictKind(result.kind);
   }
 
   async function startListening() {
-    await stopListening();
+    closeMicrophone();
     const stream = await openMicrophone();
     if (!stream) {
       return;
     }
-    const withStrum = drillRef.current === "rasgueo";
-    heardRef.current = [];
+    record("tocar");
+    evidenceRef.current = new ChordEvidence();
     setListening(true);
     setVerdict(`Escuchando. Toca ${spanishName(symbolRef.current)}.`);
     setVerdictKind("espera");
-    stopRef.current = await startChordMonitor(
-      stream,
-      () =>
-        symbolRef.current
-          ? {
-              symbol: symbolRef.current,
-              candidates: chordCandidates(symbolRef.current, symbolsRef.current),
-            }
-          : null,
-      (judgement) => {
-        // Tres tramos seguidos votan: así el veredicto no parpadea con cada golpe.
-        heardRef.current = [...heardRef.current, judgement?.heard ?? null].slice(-3);
-        const heard = vote(heardRef.current);
-        const count = heardRef.current.filter((item) => item === heard).length;
-        if (heard === null || count < 2) {
-          return;
-        }
-        const expected = symbolRef.current;
-        const result = judgementVerdict(heard, heard === expected, expected);
-        setVerdict(
-          withStrum && result.kind === "bien"
-            ? `Bien. ${spanishName(expected)} con el rasgueo.`
-            : result.text,
-        );
-        setVerdictKind(result.kind);
-      },
-    );
+    await listenTo(stream, { chords: true, notes: false }, onFreeChordEvent);
   }
 
   async function finish() {
-    if (savingRef.current || !song || drillRef.current !== "progresion") {
+    const follower = followerRef.current;
+    if (!attemptOpenRef.current || !song || drillRef.current !== "progresion") {
       return;
     }
+    const latencyMs = latencyMsRef.current;
+    attemptOpenRef.current = false;
+    setSaveFailed(false);
+    closeMicrophone();
+    setActive(-1);
+    setPhase("finished");
     if (!useSession.getState().scoreTiming) {
-      setPhase("finished");
       setVerdict("Este ritmo es un supuesto de la carta. Corrígelo en la guía antes de puntuar.");
       setVerdictKind("espera");
       return;
     }
-    savingRef.current = true;
-    await stopRef.current?.();
-    stopRef.current = null;
     if (!token) {
-      setPhase("finished");
       setVerdict("Práctica terminada. No se guardó.");
       setVerdictKind("espera");
       return;
     }
-    const chart = practiceSteps(song, study);
-    const events = chart.map((step, index) => {
-      const hit = hitsRef.current.get(index);
+    if (!steps.some((_step, index) => follower?.result(index).judgement.heard)) {
+      setVerdict(
+        "No se oyó ningún acorde, así que no se guardó. Revisa el micrófono e intenta de nuevo.",
+      );
+      setVerdictKind("no");
+      return;
+    }
+    const events = steps.map((step, index) => {
+      const result = follower?.result(index);
+      const heard = result?.judgement.heard ?? null;
+      const delta = result?.deltaMs ?? null;
       return {
         bar: step.bar,
         expected: step.symbol,
-        detected: hit?.detected ?? null,
-        deltaMs: hit?.deltaMs ?? 1000,
-        confidence: hit ? 0.8 : 0,
+        detected: heard,
+        // Sin ataque pero con el acorde sonando: se dejó vibrar y no llegó tarde.
+        deltaMs: heard === null ? MISSED_DELTA_MS : delta === null ? 0 : delta - latencyMs,
+        confidence: result?.judgement.score ?? 0,
       };
     });
+    const bpm = Math.min(MAX_BPM, Math.max(MIN_BPM, Math.round(song.bpm * speed)));
     try {
       const saved = await new ApiClient(apiUrl, fetch, token).createAttempt(
         song.id,
-        song.bpm,
+        bpm,
         events,
+        Math.max(-MAX_LATENCY_MS, Math.min(MAX_LATENCY_MS, latencyMs)),
       );
       setLastAttemptId(saved.id);
+      setSavedAttemptId(saved.id);
       setVerdict(`Intento guardado. Precisión ${Math.round(saved.accuracy)}%.`);
       setVerdictKind("espera");
-      setPhase("finished");
     } catch (error) {
-      savingRef.current = false;
-      setPhase("finished");
+      attemptOpenRef.current = true;
+      setSaveFailed(true);
       setVerdict(error instanceof ApiError ? error.message : "No se pudo guardar el intento.");
       setVerdictKind("no");
     }
@@ -196,78 +316,94 @@ export function PracticePage() {
     if (!song || drillRef.current !== "progresion") {
       return;
     }
-    await stopRef.current?.();
-    stopRef.current = null;
-    savingRef.current = false;
-    hitsRef.current = new Map();
-    heardRef.current = [];
+    closeMicrophone();
+    forgetAttempt();
     setMarks({});
     setActive(0);
     setPhase("playing");
-    setVerdict(token ? "En curso. Toca cada acorde." : "En curso. Esta práctica no se guardará.");
+    setVerdict(
+      token ? "Prepárate: cuenta de entrada." : "Prepárate. Esta práctica no se guardará.",
+    );
     setVerdictKind("espera");
+    const ticket = micTicketRef.current;
     const stream = await openMicrophone();
     if (!stream) {
-      setPhase("idle");
+      if (ticket === micTicketRef.current) {
+        setPhase("idle");
+      }
       return;
     }
-    startedRef.current = performance.now();
-    const chart = practiceSteps(song, study);
-    const symbols = [...new Set(chart.map((item) => item.symbol))];
-    const windowIndex = (elapsed: number) =>
-      chart.findIndex((item, index) => {
-        const at = chordAt(item.bar, item.beat, song.bpm);
-        return !hitsRef.current.has(index) && elapsed >= at - 80 && elapsed <= at + 700;
-      });
-    stopRef.current = await startChordMonitor(
-      stream,
-      () => {
-        const index = windowIndex(performance.now() - startedRef.current);
-        return index < 0
-          ? null
-          : {
-              symbol: chart[index].symbol,
-              candidates: chordCandidates(chart[index].symbol, symbols),
-            };
-      },
-      (judgement) => {
-        const elapsed = performance.now() - startedRef.current;
-        chart.forEach((item, index) => {
-          if (Math.abs(elapsed - chordAt(item.bar, item.beat, song.bpm)) < 180) {
-            setActive(index);
-            setPicked(index);
-          }
-        });
-        const index = windowIndex(elapsed);
-        if (index < 0 || !judgement?.heard) {
-          return;
-        }
-        const target = chart[index];
-        hitsRef.current.set(index, {
-          detected: judgement.heard,
-          deltaMs: Math.round(elapsed - chordAt(target.bar, target.beat, song.bpm)),
-        });
-        if (!useSession.getState().scoreTiming) {
-          setVerdict("Escuchando. Este tramo no se puntúa: el ritmo de la guía es un supuesto.");
-          setVerdictKind("espera");
-          return;
-        }
-        const result = judgementVerdict(judgement.heard, judgement.ok, target.symbol);
-        setMarks((current) => ({ ...current, [index]: judgement.ok ? "bien" : "no" }));
-        setVerdict(result.text);
-        setVerdictKind(judgement.ok ? "bien" : "no");
-      },
-    );
-    const last = chart.reduce(
-      (max, step) => Math.max(max, chordAt(step.bar, step.beat, song.bpm)),
-      0,
-    );
-    window.clearTimeout(endTimer.current);
-    endTimer.current = window.setTimeout(() => {
-      if (drillRef.current === "progresion" && useSession.getState().song?.id === song.id) {
+    record("tocar");
+    const onEvent = (event: ListenerEvent) => {
+      if (event.type === "onset") {
+        followerRef.current?.addOnset(event.at);
+      } else if (event.type === "chord") {
+        followerRef.current?.addChroma(event.onsetAt, event.at, event.windowSize, event.chroma);
+      }
+    };
+    const session = await listenTo(stream, { chords: true, notes: false }, onEvent);
+    if (!session) {
+      return;
+    }
+
+    const secondsPerBeat = 60 / (song.bpm * speed);
+    const countIn = Math.round(beatsPerBar);
+    const firstBeat = session.now() + START_MARGIN_SECONDS;
+    const origin = firstBeat + countIn * secondsPerBeat;
+    const firstPosition = beatPosition(steps[0], beatsPerBar);
+    const slots: ChordSlot[] = steps.map((step, index) => {
+      const at = origin + (beatPosition(step, beatsPerBar) - firstPosition) * secondsPerBeat;
+      return {
+        symbol: step.symbol,
+        at,
+        end: at + beatsOf(steps, index, beatsPerBar) * secondsPerBeat,
+      };
+    });
+    const songEnd = slots[slots.length - 1].end;
+    const totalBeats = metronome ? Math.ceil((songEnd - firstBeat) / secondsPerBeat) : countIn;
+    for (let beat = 0; beat < totalBeats; beat += 1) {
+      session.click(firstBeat + beat * secondsPerBeat, beat % countIn === 0);
+    }
+    const symbols = symbolsRef.current;
+    const follower = new ChordScoreFollower(slots, (symbol) => chordCandidates(symbol, symbols));
+    followerRef.current = follower;
+    latencyMsRef.current = Math.round(session.latency * 1000);
+    attemptOpenRef.current = true;
+
+    let closed = 0;
+    let lastIndex = -1;
+    let started = false;
+    cursorRef.current = window.setInterval(() => {
+      const time = session.now();
+      if (time < origin) {
+        const left = Math.ceil((origin - time) / secondsPerBeat);
+        setVerdict(`Empieza en ${left}…`);
+        return;
+      }
+      if (!started) {
+        started = true;
+        setVerdict("Toca cada acorde cuando se ilumine.");
+      }
+      const index = follower.indexAt(time);
+      if (index >= 0 && index !== lastIndex) {
+        lastIndex = index;
+        setActive(index);
+        setPicked(index);
+      }
+      while (closed < slots.length && time > slots[closed].end + SLOT_GRACE_SECONDS) {
+        const result = follower.result(closed);
+        const position = closed;
+        const expected = slots[closed].symbol;
+        const said = judgementVerdict(result.judgement.heard, result.judgement.ok, expected);
+        setMarks((current) => ({ ...current, [position]: result.judgement.ok ? "bien" : "no" }));
+        setVerdict(said.text);
+        setVerdictKind(said.kind);
+        closed += 1;
+      }
+      if (time > songEnd + FINISH_GRACE_SECONDS) {
         void finish();
       }
-    }, last + 900);
+    }, CURSOR_TICK_MS);
   }
 
   function onKeyDown(key: string) {
@@ -284,17 +420,16 @@ export function PracticePage() {
   }
 
   function choose(next: Drill) {
-    window.clearTimeout(endTimer.current);
-    void stopListening();
+    closeMicrophone();
     setDrill(next);
     setPhase("idle");
     setActive(-1);
     setMarks({});
-    savingRef.current = false;
+    forgetAttempt();
     const symbol = steps[picked]?.symbol ?? steps[0]?.symbol;
     setVerdict(
       next === "progresion"
-        ? "Pulsa Empezar y toca la progresión."
+        ? "Pulsa Empezar: habrá una cuenta de entrada y luego toca cada acorde."
         : symbol
           ? `Pulsa Escuchar mi guitarra y toca ${spanishName(symbol)}.`
           : "Pulsa Escuchar mi guitarra y toca el acorde.",
@@ -302,19 +437,23 @@ export function PracticePage() {
     setVerdictKind("espera");
   }
 
+  function pick(index: number) {
+    setPicked(index);
+    evidenceRef.current = new ChordEvidence();
+  }
+
   if (!song) {
     return (
       <main className="page">
-        <header className="page-head">
-          <p className="eyebrow">Sala de ensayo</p>
-          <h1>Práctica</h1>
-        </header>
-        <section className="empty-stage">
-          <p>Elige una canción en la biblioteca.</p>
+        <PageHeader icon="mic" eyebrow="Paso 3: a tocar" title="Práctica">
+          Tocas tu guitarra y la app te escucha para decirte si el acorde suena bien.
+        </PageHeader>
+        <EmptyState icon="guitar" title="Primero elige una canción">
+          <p>Elige una canción en la biblioteca. Las primeras son muy fáciles.</p>
           <Link className="button" to="/biblioteca">
             Abrir biblioteca
           </Link>
-        </section>
+        </EmptyState>
       </main>
     );
   }
@@ -327,13 +466,15 @@ export function PracticePage() {
   const step = steps[shown] ?? steps[0];
   // Las funciones declaradas no heredan el descarte de song nulo de más arriba.
   const bpm = song.bpm;
+  const playing = phase === "playing";
 
   function hearChart() {
+    record("tocar");
     listenTicket.current += 1;
     const ticket = listenTicket.current;
     listenRef.current.forEach((id) => window.clearTimeout(id));
     listenRef.current = [];
-    const lengths = steps.map((_, position) => beatsOf(steps, position));
+    const lengths = steps.map((_, position) => beatsOf(steps, position, beatsPerBar));
     void Promise.all(steps.map((item) => shapeFor(item.symbol)))
       .then((found) =>
         ticket === listenTicket.current ? playSlots(found, lengths, bpm, pattern) : [],
@@ -354,165 +495,273 @@ export function PracticePage() {
   }
 
   return (
-    <main className="page" tabIndex={0} onKeyDown={(event) => onKeyDown(event.key)}>
-      <header className="page-head">
-        <p className="eyebrow">Carta en curso</p>
-        <h1>{song.title}</h1>
-        <p className="lead">
-          {song.artist} · {song.bpm} BPM
-        </p>
-      </header>
-      <div className="auth-switch" role="group" aria-label="Modalidad de práctica">
-        <button type="button" aria-pressed={drill === "acorde"} onClick={() => choose("acorde")}>
-          Acorde solo
-        </button>
-        <button type="button" aria-pressed={drill === "rasgueo"} onClick={() => choose("rasgueo")}>
-          Acorde y rasgueo
-        </button>
-        <button
-          type="button"
-          aria-pressed={drill === "progresion"}
-          onClick={() => choose("progresion")}
-        >
-          Progresión
-        </button>
-      </div>
-      <p className={`verdict is-${verdictKind}`} role="status">
-        {verdict}
-      </p>
-      {drill !== "progresion" ? (
-        <div className="actions">
+    <main
+      className="page"
+      tabIndex={0}
+      onKeyDown={(event) => {
+        // Espacio y Enter ya activan el control enfocado: no deben iniciar otra acción.
+        if (!(event.target as HTMLElement).closest("button, a, input, select")) {
+          onKeyDown(event.key);
+        }
+      }}
+    >
+      <PageHeader icon="mic" eyebrow="Carta en curso" title={song.title}>
+        {song.artist} · {song.bpm} <Term id="bpm">BPM</Term>
+      </PageHeader>
+
+      <div className="drill-picker" role="group" aria-label="Modalidad de práctica">
+        {DRILLS.map((item) => (
           <button
+            key={item.id}
             type="button"
-            aria-pressed={listening}
-            onClick={() => void (listening ? stopListening() : startListening())}
+            className="drill-card"
+            aria-pressed={drill === item.id}
+            onClick={() => choose(item.id)}
           >
-            {listening ? "Dejar de escuchar" : "Escuchar mi guitarra"}
+            {item.title}
+            <small>{item.text}</small>
           </button>
-        </div>
-      ) : null}
-      <p className="hint">
-        El micrófono compara todas las notas que suenan con las del acorde. El audio no sale de este
-        navegador.
-      </p>
-      <ol className="chart" aria-label="Carta">
-        {boxes.map((box, index) => (
-          <li key={`${box.x}-${box.symbol}`} className={index === shown ? "is-now" : undefined}>
-            <button type="button" className="chart-hit" onClick={() => setPicked(index)}>
-              {box.symbol}
-              <small>
-                {marks[index] === "bien"
-                  ? "Bien"
-                  : marks[index] === "no"
-                    ? "No"
-                    : `${beatsOf(steps, index)} t`}
-              </small>
-            </button>
-          </li>
         ))}
-      </ol>
-      {step ? (
-        <section className="panel song-lesson">
-          <ChordFigure symbol={step.symbol} />
-          {drill !== "acorde" ? (
-            <StrumRail
-              pattern={pattern}
-              active={arrow}
-              onStrum={(direction, index) => {
-                setArrow(index);
-                void shapeFor(step.symbol).then((found) => {
-                  if (found) {
-                    playStrum(found, direction);
-                  }
-                });
-              }}
-            />
-          ) : null}
-          {drill === "rasgueo" ? <p className="hint">{pattern.hint}</p> : null}
-          <div className="actions">
-            <button
-              type="button"
-              className="button-ghost"
-              onClick={() => setPicked(Math.max(0, shown - 1))}
-            >
-              Anterior
-            </button>
-            <button
-              type="button"
-              className="button-ghost"
-              onClick={() => setPicked(Math.min(steps.length - 1, shown + 1))}
-            >
-              Siguiente
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                void shapeFor(step.symbol).then((found) => {
-                  if (found) {
-                    playChord(found);
-                  }
-                });
-              }}
-            >
-              Escuchar el acorde
-            </button>
-            {drill !== "acorde" ? (
-              <button
-                type="button"
-                onClick={() => {
-                  listenTicket.current += 1;
-                  const ticket = listenTicket.current;
-                  listenRef.current.forEach((id) => window.clearTimeout(id));
-                  listenRef.current = [];
-                  void shapeFor(step.symbol)
-                    .then((found) =>
-                      found && ticket === listenTicket.current
-                        ? playPattern(found, song.bpm, pattern)
-                        : [],
-                    )
-                    .then((hits) => {
-                      if (ticket !== listenTicket.current || hits.length === 0) {
-                        return;
-                      }
-                      listenRef.current = queueStrumMarks(
-                        hits,
-                        (hit) => setArrow(hit.hit),
-                        () => setArrow(-1),
-                      );
-                    });
-                }}
-              >
-                Escuchar el rasgueo
-              </button>
-            ) : null}
-            {drill === "progresion" ? (
-              <button type="button" onClick={hearChart}>
-                Escuchar la canción
-              </button>
-            ) : null}
-          </div>
-        </section>
-      ) : null}
+      </div>
+
       {token ? null : (
         <p className="note">
           Puedes practicar sin entrar. Esta práctica no se guardará.{" "}
           <Link to="/entrar">Inicia sesión</Link> para conservarla.
         </p>
       )}
-      {drill === "progresion" ? (
-        <div className="actions">
-          <button type="button" onClick={() => onKeyDown(" ")}>
-            Empezar
-          </button>
-          <button className="button-ghost" type="button" onClick={() => void finish()}>
-            Cerrar intento
-          </button>
+
+      <section className="panel practice-console" aria-label="Lo que escucha la app">
+        <div className="stack">
+          <p className={`verdict is-${verdictKind}`} role="status">
+            {verdict}
+          </p>
+          <p className="hint">
+            El micrófono compara las notas que suenan con las del acorde. El audio no sale de este
+            navegador.
+          </p>
         </div>
+        <div className="actions">
+          {drill === "progresion" ? (
+            <>
+              <button
+                type="button"
+                className="button-large"
+                disabled={playing}
+                onClick={() => onKeyDown(" ")}
+              >
+                <Icon name="play" />
+                {phase === "finished" ? "Empezar otra vez" : "Empezar"}
+              </button>
+              {playing ? (
+                <button
+                  className="button-ghost button-large"
+                  type="button"
+                  onClick={() => void finish()}
+                >
+                  Cerrar intento
+                </button>
+              ) : null}
+              {saveFailed ? (
+                <button
+                  className="button-ghost button-large"
+                  type="button"
+                  onClick={() => void finish()}
+                >
+                  Reintentar guardar
+                </button>
+              ) : null}
+              {savedAttemptId ? (
+                <Link
+                  className="button button-ghost button-large"
+                  to="/informe"
+                  state={{ attemptId: savedAttemptId }}
+                >
+                  Ver informe de esta sesión
+                  <Icon name="arrowRight" size={18} />
+                </Link>
+              ) : null}
+            </>
+          ) : (
+            <button
+              type="button"
+              className={listening ? "button-large is-listening" : "button-large"}
+              aria-pressed={listening}
+              onClick={() => {
+                if (listening) {
+                  closeMicrophone();
+                } else {
+                  void startListening();
+                }
+              }}
+            >
+              <Icon name={listening ? "stop" : "mic"} />
+              {listening ? "Dejar de escuchar" : "Escuchar mi guitarra"}
+            </button>
+          )}
+        </div>
+      </section>
+
+      {drill === "progresion" ? (
+        <section className="panel player-toggles" aria-label="Ajustes del intento">
+          <label>
+            Velocidad
+            <select
+              value={speed}
+              disabled={playing}
+              onChange={(event) => setSpeed(Number(event.target.value))}
+            >
+              {SPEEDS.map((value) => (
+                <option key={value} value={value}>
+                  {Math.round(value * 100)} % ({Math.round(song.bpm * value)} BPM)
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={metronome}
+              disabled={playing}
+              onChange={(event) => setMetronome(event.target.checked)}
+            />
+            <span>
+              <Term id="metronomo">Metrónomo</Term> (mejor con audífonos)
+            </span>
+          </label>
+        </section>
       ) : null}
+
+      <section className="stack" aria-label="Acordes de la canción">
+        <p className="hint">
+          Esta es la <Term id="carta">carta</Term>: toca un acorde para verlo.
+        </p>
+        <ol className="chart" aria-label="Carta">
+          {boxes.map((box, index) => (
+            <li key={`${box.x}-${box.symbol}`} className={index === shown ? "is-now" : undefined}>
+              <button type="button" className="chart-hit" onClick={() => pick(index)}>
+                {box.symbol}
+                <small>
+                  {marks[index] === "bien"
+                    ? "Bien"
+                    : marks[index] === "no"
+                      ? "No"
+                      : `${beatsOf(steps, index, beatsPerBar)} t`}
+                </small>
+              </button>
+            </li>
+          ))}
+        </ol>
+      </section>
+
+      {step ? (
+        <section className="panel practice-chord">
+          <ChordFigure symbol={step.symbol} />
+          <div className="practice-chord-tools">
+            {drill !== "acorde" ? (
+              <StrumRail
+                pattern={pattern}
+                active={arrow}
+                onStrum={(direction, index) => {
+                  setArrow(index);
+                  void shapeFor(step.symbol).then((found) => {
+                    if (found) {
+                      playStrum(found, direction);
+                    }
+                  });
+                }}
+              />
+            ) : (
+              <p className="hint">
+                Los puntos son tus dedos, las líneas verticales son las cuerdas y las horizontales,
+                los trastes.
+              </p>
+            )}
+            {drill === "rasgueo" ? (
+              <p className="hint">
+                <GlossaryText text={pattern.hint} />
+              </p>
+            ) : null}
+            <div className="actions">
+              <button
+                type="button"
+                className="button-ghost"
+                onClick={() => {
+                  void shapeFor(step.symbol).then((found) => {
+                    if (found) {
+                      playChord(found);
+                    }
+                  });
+                }}
+              >
+                <Icon name="sound" size={18} />
+                Escuchar el acorde
+              </button>
+              {drill !== "acorde" ? (
+                <button
+                  type="button"
+                  className="button-ghost"
+                  onClick={() => {
+                    listenTicket.current += 1;
+                    const ticket = listenTicket.current;
+                    listenRef.current.forEach((id) => window.clearTimeout(id));
+                    listenRef.current = [];
+                    void shapeFor(step.symbol)
+                      .then((found) =>
+                        found && ticket === listenTicket.current
+                          ? playPattern(found, song.bpm, pattern)
+                          : [],
+                      )
+                      .then((hits) => {
+                        if (ticket !== listenTicket.current || hits.length === 0) {
+                          return;
+                        }
+                        listenRef.current = queueStrumMarks(
+                          hits,
+                          (hit) => setArrow(hit.hit),
+                          () => setArrow(-1),
+                        );
+                      });
+                  }}
+                >
+                  <Icon name="sound" size={18} />
+                  Escuchar el rasgueo
+                </button>
+              ) : null}
+              {drill === "progresion" ? (
+                <button type="button" className="button-ghost" onClick={hearChart}>
+                  <Icon name="sound" size={18} />
+                  Escuchar la canción
+                </button>
+              ) : null}
+            </div>
+            <div className="actions">
+              <button
+                type="button"
+                className="button-ghost"
+                onClick={() => pick(Math.max(0, shown - 1))}
+              >
+                <Icon name="arrowLeft" size={18} />
+                Anterior
+              </button>
+              <button
+                type="button"
+                className="button-ghost"
+                onClick={() => pick(Math.min(steps.length - 1, shown + 1))}
+              >
+                Siguiente
+                <Icon name="arrowRight" size={18} />
+              </button>
+            </div>
+          </div>
+        </section>
+      ) : null}
+
       {study ? <p className="hint">{study.summary}</p> : null}
       {drill === "progresion" ? (
         <p className="hint">
-          Espacio empieza. Enter cierra el intento. <Link to="/informe">Ver el informe</Link>
+          <span className="keyboard-hint">Espacio empieza. Enter cierra el intento. </span>
+          <Link to="/informe">Ver el informe</Link>
         </p>
       ) : null}
     </main>

@@ -1,70 +1,90 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
+import { JOURNEY_STEPS, nextStep } from "../domain/journey";
 import { readVisit } from "../store/lastVisit";
-
-const OPTIONS = [
-  {
-    href: "/aprendizaje",
-    index: "01",
-    title: "Aprendizaje",
-    text: "Cuerdas, trastes, notas y tres canciones cortas. El avance se guarda con tu sesión.",
-  },
-  {
-    href: "/afinador",
-    index: "02",
-    title: "Afinador",
-    text: "La aguja lee la cuerda en este equipo. Nada del micrófono sale del navegador.",
-  },
-  {
-    href: "/practica",
-    index: "03",
-    title: "Práctica",
-    text: "Sigue el pulso, cierra el intento y deja el registro para el informe.",
-  },
-  {
-    href: "/biblioteca",
-    index: "04",
-    title: "Biblioteca",
-    text: "Busca una carta o sube ChordPro, texto o MusicXML para estudiarla.",
-  },
-  {
-    href: "/canciones",
-    index: "05",
-    title: "Mis canciones",
-    text: "Pega los acordes de la canción que quieras y practícala por secciones, a tu tempo.",
-  },
-  {
-    href: "/informe",
-    index: "06",
-    title: "Informe",
-    text: "Elige canción completa, quiz o progresión según lo que ya practicaste.",
-  },
-] as const;
+import { useJourney } from "../store/journey";
+import { Achievements } from "../ui/Achievements";
+import { GuidedPath } from "../ui/GuidedPath";
+import { GuitarExplorer } from "../ui/GuitarExplorer";
+import { Icon } from "../ui/Icon";
+import { Term } from "../ui/Term";
 
 export function HomePage() {
   const [visit] = useState(readVisit);
+  const progress = useJourney((state) => state.progress);
+  const upcoming = nextStep(progress);
+  const done = progress.milestones.length;
+
   return (
     <main className="page">
       <section className="hero">
-        <p className="eyebrow">Estudio de guitarra</p>
-        <h1>Practica con el oído, no con la partitura ajena</h1>
-        <p className="lead">El audio se queda en este navegador.</p>
+        <div className="hero-copy">
+          <p className="eyebrow">Tu profesor de guitarra</p>
+          <h1>Aprende guitarra paso a paso, aunque nunca hayas tocado</h1>
+          <p className="lead">
+            Escucha, imita y recibe ayuda al instante. El audio se queda en este navegador.
+          </p>
+          <div className="actions">
+            {upcoming ? (
+              <Link className="button button-large" to={upcoming.path}>
+                <Icon name={upcoming.icon} />
+                {done === 0 ? "Empezar: " : "Seguir: "}
+                {upcoming.title.toLowerCase()}
+              </Link>
+            ) : (
+              <Link className="button button-large" to="/canciones">
+                <Icon name="music" />
+                Practicar mis canciones
+              </Link>
+            )}
+          </div>
+          <p className="hint">
+            ¿Ves una palabra subrayada, como <Term id="traste">traste</Term>? Tócala y te explicamos
+            qué significa.
+          </p>
+        </div>
+        <div className="hero-board">
+          <h2>Prueba: esta guitarra suena</h2>
+          <GuitarExplorer />
+        </div>
       </section>
+
       {visit ? (
         <Link className="panel resume-card" to={visit.path}>
-          <span className="eyebrow">Continuar donde quedaste</span>
-          <strong>{visit.label}</strong>
+          <span className="resume-icon">
+            <Icon name="play" />
+          </span>
+          <span>
+            <span className="eyebrow">Continuar donde quedaste</span>
+            <strong>{visit.label}</strong>
+          </span>
+          <Icon name="arrowRight" />
         </Link>
       ) : null}
-      <section className="setlist" aria-label="Opciones">
-        {OPTIONS.map((option) => (
-          <Link key={option.href} className="set-card" to={option.href}>
-            <span className="set-index">{option.index}</span>
-            <h2>{option.title}</h2>
-            <p>{option.text}</p>
-          </Link>
-        ))}
+
+      <section className="panel path-panel" aria-labelledby="ruta-titulo">
+        <div className="section-head">
+          <div>
+            <h2 id="ruta-titulo">Tu ruta de principiante</h2>
+            <p className="hint">Cinco pasos cortos. Puedes hacerlos a tu ritmo.</p>
+          </div>
+          <div
+            className="path-meter"
+            role="img"
+            aria-label={`${done} de ${JOURNEY_STEPS.length} pasos completados`}
+          >
+            {JOURNEY_STEPS.map((step) => (
+              <span
+                key={step.id}
+                className={progress.milestones.includes(step.id) ? "is-done" : undefined}
+              />
+            ))}
+          </div>
+        </div>
+        <GuidedPath />
       </section>
+
+      <Achievements />
     </main>
   );
 }

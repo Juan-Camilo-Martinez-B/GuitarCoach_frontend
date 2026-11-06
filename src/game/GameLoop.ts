@@ -27,7 +27,7 @@ export class GameLoop {
 }
 
 export function practiceCommand(key: string, phase: GamePhase): "start" | "finish" | null {
-  if (key === " " && phase === "idle") {
+  if (key === " " && (phase === "idle" || phase === "finished")) {
     return "start";
   }
   if (key === "Enter" && phase === "playing") {

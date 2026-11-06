@@ -16,6 +16,7 @@ describe("juego", () => {
     expect(practiceCommand("a", "idle")).toBeNull();
     expect(practiceCommand("Enter", "playing")).toBe("finish");
     expect(practiceCommand(" ", "playing")).toBeNull();
+    expect(practiceCommand(" ", "finished")).toBe("start");
   });
 
   it("dibuja una caja por acorde", () => {
