@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ApiClient, ApiError } from "../api/client";
 import { playGuide, playStrum, stopGuitar, warmShape } from "../audio/guitarTone";
@@ -7,6 +7,7 @@ import type { StrumHit } from "../domain/course";
 import {
   bpmFromUs,
   ensureGrid,
+  firstPlayedSection,
   guideHits,
   hasInferredTiming,
   hasWrittenMelody,
@@ -16,6 +17,7 @@ import {
   sectionPattern,
   songFromGuide,
   soundingMelody,
+  strumBar,
   SOURCE_LABEL,
   totalBeats,
   usAt,
@@ -31,6 +33,11 @@ import { GuideEditor } from "../ui/GuideEditor";
 import { StatusMessage } from "../ui/StatusMessage";
 import { queueStrumMarks } from "../ui/strumMarks";
 import { StrumRail } from "../ui/StrumRail";
+
+// alphaTab pesa más que el resto de la app: solo se descarga si la guía trae tablatura.
+const TabPlayer = lazy(() =>
+  import("../ui/TabPlayer").then((module) => ({ default: module.TabPlayer })),
+);
 
 const apiUrl = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 const RATES = [0.75, 0.85, 1, 1.1, 1.2, 1.275, 1.3, 1.45];
@@ -80,6 +87,8 @@ export function GuidePage() {
   const [playing, setPlaying] = useState(false);
   const [now, setNow] = useState<Now | null>(null);
   const [editing, setEditing] = useState(false);
+  // Con tablatura se elige la vista; por defecto, acordes y rasgueo para tocar.
+  const [view, setView] = useState<"acordes" | "partitura">("acordes");
   const [state, setState] = useState<"idle" | "loading" | "error">("loading");
   const [message, setMessage] = useState("");
   const timers = useRef<number[]>([]);
@@ -87,9 +96,30 @@ export function GuidePage() {
   loopRef.current = loop;
 
   const source = record?.guide ?? null;
+  const [tab, setTab] = useState<ArrayBuffer | null>(null);
+  const hasTab = record?.sourceKind === "tablatura";
+
+  useEffect(() => {
+    if (!hasTab || !token) {
+      setTab(null);
+      return;
+    }
+    let live = true;
+    void new ApiClient(apiUrl, fetch, token)
+      .guideTab(guideId)
+      .then((bytes) => live && setTab(bytes))
+      .catch(() => live && setMessage("No se pudo abrir la tablatura de esta guía."));
+    return () => {
+      live = false;
+    };
+  }, [guideId, hasTab, token]);
   const guide = useMemo(() => (source ? prepareLesson(ensureGrid(source)) : null), [source]);
   const writtenMelody = useMemo(() => (source ? hasWrittenMelody(source) : false), [source]);
-  const melody = useMemo(() => (guide ? soundingMelody(guide) : []), [guide]);
+  // En una tablatura sin punteo no hay melodía: no se ofrece la guía armónica en su lugar.
+  const melody = useMemo(
+    () => (guide && !(hasTab && !writtenMelody) ? soundingMelody(guide) : []),
+    [guide, hasTab, writtenMelody],
+  );
 
   // La guía armónica no es la canción: solo suena si el alumno la pide.
   useEffect(() => {
@@ -249,7 +279,12 @@ export function GuidePage() {
     navigate("/practica");
   }
 
-  const focusSection = now?.section ?? (range === "all" ? 0 : range);
+  const opening = useMemo(() => (guide ? firstPlayedSection(guide) : 0), [guide]);
+  const focusSection = now?.section ?? (range === "all" ? opening : range);
+  const focusStrum = useMemo(
+    () => (guide ? strumBar(guide, focusSection) : []),
+    [focusSection, guide],
+  );
   const focusChord = useMemo(() => {
     if (!guide) {
       return -1;
@@ -258,7 +293,13 @@ export function GuidePage() {
       return now.chord;
     }
     const start = guide.sections[focusSection]?.start ?? 0;
-    return guide.chords.findIndex((chord) => chord.start >= start - 1e-6);
+    // El acorde que está sonando cuando empieza la sección, aunque venga de antes.
+    const sounding = guide.chords.findIndex(
+      (chord) => chord.start <= start + 1e-6 && start < chord.start + chord.beats - 1e-6,
+    );
+    return sounding >= 0
+      ? sounding
+      : guide.chords.findIndex((chord) => chord.start >= start - 1e-6);
   }, [focusSection, guide, now]);
 
   if (!token) {
@@ -303,10 +344,10 @@ export function GuidePage() {
         {guide.events?.some((event) => event.origin === "leccion") ? (
           <p className="lead">{lessonHint(guide.beats_per_bar)} Escucha y luego tócalo igual.</p>
         ) : null}
-        {writtenMelody ? null : (
+        {writtenMelody || hasTab ? null : (
           <p className="lead">
-            Esta guía solo trae acordes, no las notas de la canción. Para oír la melodía real, sube
-            la tablatura en MusicXML.
+            Esta guía solo trae acordes, no las notas de la canción. Para oír cada nota tal como
+            suena, sube su tablatura de Guitar Pro en <Link to="/canciones">Mis canciones</Link>.
           </p>
         )}
         <span className={`guide-status is-${record.status}`}>
@@ -329,6 +370,42 @@ export function GuidePage() {
           onCancel={() => setEditing(false)}
         />
       ) : (
+        <>
+          {hasTab ? (
+            <div className="auth-switch guide-view" role="group" aria-label="Vista de la canción">
+              <button
+                type="button"
+                aria-pressed={view === "acordes"}
+                onClick={() => setView("acordes")}
+              >
+                Acordes y rasgueo
+              </button>
+              <button
+                type="button"
+                aria-pressed={view === "partitura"}
+                onClick={() => {
+                  stop();
+                  setView("partitura");
+                }}
+              >
+                Partitura
+              </button>
+            </div>
+          ) : null}
+        </>
+      )}
+
+      {!editing && hasTab && view === "partitura" ? (
+        tab ? (
+          <Suspense fallback={<p className="hint">Cargando la tablatura...</p>}>
+            <TabPlayer data={tab} />
+          </Suspense>
+        ) : (
+          <p className="hint">Cargando la tablatura...</p>
+        )
+      ) : null}
+
+      {editing || (hasTab && view === "partitura") ? null : (
         <>
           <section className="panel guide-player" aria-label="Reproductor">
             <div className="player-controls">
@@ -460,36 +537,34 @@ export function GuidePage() {
 
           <section className="panel guide-grid" aria-label="Rasgueo de la lección">
             <h2>Rasgueo de {guide.sections[focusSection]?.name}</h2>
-            <p className="hint">
-              Escucha y copia estas flechas. El número es cuántos tiempos dura cada golpe. Aire no
-              suena y deja sonar el acorde.
-            </p>
-            <div className="event-strip">
-              {guide.events?.map((event, index) => {
-                const section = guide.sections[focusSection];
-                if (
-                  !section ||
-                  event.pulse < section.start - 1e-6 ||
-                  event.pulse >= section.start + section.beats - 1e-6
-                ) {
-                  return null;
-                }
-                const label =
-                  event.contact === "aire"
-                    ? "aire"
-                    : event.direction === "arriba"
-                      ? "↑"
-                      : event.direction === "apagado"
-                        ? "×"
-                        : "↓";
-                return (
-                  <span key={`${event.pulse}-${index}`} className="event-chip">
-                    <span>{label}</span>
-                    <small>{event.span}</small>
-                  </span>
-                );
-              })}
-            </div>
+            {focusStrum.length === 0 ? (
+              <p className="hint">En esta sección la guitarra no toca.</p>
+            ) : (
+              <>
+                <p className="hint">
+                  Un compás del patrón: escucha y copia estas flechas. El número es cuántos tiempos
+                  dura cada golpe. Aire no suena y deja sonar el acorde.
+                </p>
+                <div className="event-strip">
+                  {focusStrum.map((event, index) => {
+                    const label =
+                      event.contact === "aire"
+                        ? "aire"
+                        : event.direction === "arriba"
+                          ? "↑"
+                          : event.direction === "apagado"
+                            ? "×"
+                            : "↓";
+                    return (
+                      <span key={`${event.pulse}-${index}`} className="event-chip">
+                        <span>{label}</span>
+                        <small>{event.span}</small>
+                      </span>
+                    );
+                  })}
+                </div>
+              </>
+            )}
           </section>
         </>
       )}

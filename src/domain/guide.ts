@@ -79,6 +79,7 @@ export const SOURCE_LABEL: Record<string, string> = {
   musicxml: "MusicXML",
   audio: "Audio",
   editor: "Editor",
+  tablatura: "Tablatura",
 };
 
 /** Un golpe de rasgueo de la guía, en pulsos relativos al tramo que se toca. */
@@ -856,4 +857,37 @@ export function retileSection(guide: SongGuide, sectionIndex: number, text: stri
     ...fresh,
   ].sort((left, right) => left.pulse - right.pulse);
   return { ...grid, events };
+}
+
+function isStrike(event: StrumEvent): boolean {
+  return event.contact !== "aire";
+}
+
+/**
+ * El compás que enseña el rasgueo de una sección: el primero donde la guitarra golpea,
+ * con sus aires. Vacío si en la sección la guitarra no toca.
+ */
+export function strumBar(guide: SongGuide, sectionIndex: number): StrumEvent[] {
+  const grid = ensureGrid(guide);
+  const section = grid.sections[sectionIndex];
+  if (!section) {
+    return [];
+  }
+  const end = section.start + section.beats;
+  for (let bar = section.start; bar < end - EPSILON; bar += grid.beats_per_bar) {
+    const barEnd = Math.min(end, bar + grid.beats_per_bar);
+    const inside = grid.events!.filter(
+      (event) => event.pulse >= bar - EPSILON && event.pulse < barEnd - EPSILON,
+    );
+    if (inside.some(isStrike)) {
+      return inside;
+    }
+  }
+  return [];
+}
+
+/** La primera sección donde suena la guitarra: una intro de otro instrumento no enseña nada. */
+export function firstPlayedSection(guide: SongGuide): number {
+  const found = guide.sections.findIndex((_, index) => strumBar(guide, index).length > 0);
+  return found < 0 ? 0 : found;
 }

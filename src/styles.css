@@ -1755,3 +1755,73 @@ button.song-card[aria-pressed="true"] {
     transition: none !important;
   }
 }
+
+/* Tablaturas: alphaTab dibuja en negro, así que la partitura va sobre papel claro en ambos temas. */
+.tab-controls {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.tab-file input {
+  display: block;
+  margin-top: 0.35rem;
+  max-width: 100%;
+}
+
+.tab-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.tab-error {
+  color: var(--bad);
+  margin: 0;
+}
+
+.tab-clock {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  align-self: center;
+}
+
+.tab-viewport {
+  margin-top: 1rem;
+  max-height: 70vh;
+  overflow: auto;
+  background: #fffdf8;
+  color: #1d1a16;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.tab-viewport.is-empty {
+  height: 0;
+  margin: 0;
+  border: 0;
+  overflow: hidden;
+}
+
+/* Cursor y notas que suenan, con los colores de la app. */
+.tab-viewport .at-cursor-bar {
+  background: rgba(166, 124, 69, 0.18);
+}
+
+.tab-viewport .at-cursor-beat {
+  background: var(--brass);
+  width: 3px;
+}
+
+.tab-viewport .at-highlight * {
+  fill: var(--brass);
+  stroke: var(--brass);
+}
+
+.tab-viewport .at-selection div {
+  background: rgba(166, 124, 69, 0.15);
+}
+
+.guide-view {
+  margin: 1rem 0;
+  max-width: 28rem;
+}

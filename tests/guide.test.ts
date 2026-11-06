@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { guideToWire } from "../src/api/guides";
 import { isChordSymbol } from "../src/domain/chart";
 import {
   appendSection,
@@ -6,11 +7,13 @@ import {
   barsToText,
   bpmFromUs,
   ensureGrid,
+  firstPlayedSection,
   guideHits,
   mergeChordBack,
   hasWrittenMelody,
   prepareLesson,
   soundingMelody,
+  strumBar,
   pulseToSeconds,
   removeSection,
   replaceSectionChords,
@@ -345,5 +348,43 @@ describe("guía de canción", () => {
       tempo: [{ pulse: 0, us_per_quarter: 750_000 }] as unknown as SongGuide["tempo"],
     });
     expect(bpmFromUs(grid.tempo![0].usPerQuarter)).toBe(80);
+  });
+
+  it("manda el tempo a la API como us_per_quarter, también después de editar", () => {
+    const edited = ensureGrid({ ...sample(), tempo: undefined });
+    const wire = guideToWire(edited);
+    expect(wire.tempo[0]).toEqual({ pulse: 0, us_per_quarter: edited.tempo![0].usPerQuarter });
+    expect(JSON.stringify(wire)).not.toContain("usPerQuarter");
+    expect(wire.events.length).toBeGreaterThan(0);
+  });
+
+  it("enseña un compás del rasgueo y salta la intro donde la guitarra no toca", () => {
+    const strike = (pulse: number, direction: "abajo" | "arriba") => ({
+      pulse,
+      span: 1,
+      direction,
+      contact: "golpe" as const,
+      velocity: 0.8,
+      origin: "escrito" as const,
+    });
+    const guide: SongGuide = {
+      ...sample(),
+      sections: [
+        { name: "Intro", start: 0, beats: 4, strum: { directions: ["abajo"], beats: [4] } },
+        { name: "Verso", start: 4, beats: 8, strum: { directions: ["abajo"], beats: [4] } },
+      ],
+      chords: [{ start: 0, beats: 12, chord: "Am" }],
+      events: [4, 5, 6, 7, 8, 9, 10, 11].map((pulse) =>
+        strike(pulse, pulse % 2 === 0 ? "abajo" : "arriba"),
+      ),
+    };
+    expect(firstPlayedSection(guide)).toBe(1);
+    expect(strumBar(guide, 0)).toEqual([]);
+    expect(strumBar(guide, 1).map((event) => event.direction)).toEqual([
+      "abajo",
+      "arriba",
+      "abajo",
+      "arriba",
+    ]);
   });
 });

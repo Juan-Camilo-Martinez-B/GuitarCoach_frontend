@@ -1,6 +1,10 @@
+import { readFileSync } from "node:fs";
 import type { Page, Route } from "@playwright/test";
 
 const API = "http://localhost:8000";
+
+/** Tablatura de prueba (Guitar Pro 7): rasgueo de Mim y Do en corcheas, con una pista de voz. */
+export const TAB_FIXTURE = new URL("../fixtures/rasgueo-prueba.gp", import.meta.url);
 
 export const CATALOG = [
   {
@@ -33,7 +37,7 @@ interface GuidePayload {
 export interface ApiState {
   guides: GuidePayload[];
   puts: Array<Record<string, unknown>>;
-  pastes: Array<Record<string, unknown>>;
+  uploads: Array<Record<string, unknown>>;
 }
 
 function json(route: Route, body: unknown, status = 200) {
@@ -45,42 +49,20 @@ function json(route: Route, body: unknown, status = 200) {
   });
 }
 
-function sampleGuide(title: string, artist: string, bpm: number): Record<string, unknown> {
-  return {
-    version: 1,
-    title,
-    artist,
-    song_key: null,
-    bpm,
-    beats_per_bar: 4,
-    capo: 0,
-    sections: [
-      {
-        name: "Intro",
-        start: 0,
-        beats: 8,
-        strum: { directions: ["abajo", "abajo", "arriba"], beats: [2, 1, 1] },
-      },
-      {
-        name: "Coro",
-        start: 8,
-        beats: 4,
-        strum: { directions: ["abajo"], beats: [4] },
-      },
-    ],
-    chords: [
-      { start: 0, beats: 4, chord: "G" },
-      { start: 4, beats: 4, chord: "D" },
-      { start: 8, beats: 2, chord: "Am" },
-      { start: 10, beats: 2, chord: "C" },
-    ],
-    melody: [],
-  };
+/** La guía va como un campo de texto del formulario multipart, junto al archivo. */
+function guideField(body: Buffer): Record<string, unknown> {
+  const text = body.toString("latin1");
+  const separator = "\r\n\r\n";
+  const start = text.indexOf(separator, text.indexOf('name="guide"')) + separator.length;
+  const end = text.indexOf("\r\n--", start);
+  const raw = Buffer.from(text.slice(start, end), "latin1").toString("utf8");
+  return JSON.parse(raw) as Record<string, unknown>;
 }
 
 /** Simula la API para que las pruebas no dependan del backend ni de la base. */
 export async function mockApi(page: Page): Promise<ApiState> {
-  const state: ApiState = { guides: [], puts: [], pastes: [] };
+  const state: ApiState = { guides: [], puts: [], uploads: [] };
+  const tab = readFileSync(TAB_FIXTURE);
   await page.route(`${API}/**`, async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -136,22 +118,30 @@ export async function mockApi(page: Page): Promise<ApiState> {
     if (path === "/guides" && method === "GET") {
       return json(route, state.guides);
     }
-    if (path === "/guides/paste" && method === "POST") {
-      const body = request.postDataJSON() as Record<string, unknown>;
-      state.pastes.push(body);
+    if (path === "/guides/from-tab" && method === "POST") {
+      const guide = guideField(request.postDataBuffer() ?? Buffer.alloc(0));
+      state.uploads.push(guide);
       const created: GuidePayload = {
         id: "g1",
         song_id: 9,
-        title: String(body.title),
-        artist: String(body.artist),
-        bpm: Number(body.bpm ?? 80),
-        source_kind: "pegado",
+        title: String(guide.title),
+        artist: String(guide.artist),
+        bpm: Number(guide.bpm),
+        source_kind: "tablatura",
         status: "borrador",
         updated_at: "2026-10-30T10:00:00Z",
-        guide: sampleGuide(String(body.title), String(body.artist), Number(body.bpm ?? 80)),
+        guide,
       };
       state.guides = [created];
       return json(route, created, 201);
+    }
+    if (/^\/guides\/[\w-]+\/tab$/.test(path) && method === "GET") {
+      return route.fulfill({
+        status: 200,
+        contentType: "application/octet-stream",
+        headers: { "access-control-allow-origin": "*" },
+        body: tab,
+      });
     }
     const guideMatch = /^\/guides\/([\w-]+)$/.exec(path);
     if (guideMatch) {
