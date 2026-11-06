@@ -1,18 +1,11 @@
-import { Component, useEffect, useState, type ReactNode } from "react";
+import { Component, useEffect, type ReactNode } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import { useGuitarLoading } from "../audio/guitar/useGuitarLoading";
 import { useSession } from "../store/session";
 import { ThemeToggle } from "../theme/ThemeToggle";
-
-const LINKS = [
-  ["/", "Inicio"],
-  ["/aprendizaje", "Aprendizaje"],
-  ["/afinador", "Afinador"],
-  ["/practica", "Práctica"],
-  ["/biblioteca", "Biblioteca"],
-  ["/canciones", "Mis canciones"],
-  ["/informe", "Informe"],
-] as const;
+import { AchievementToast, StreakBadge } from "../ui/Achievements";
+import { Icon } from "../ui/Icon";
+import { NAV_SECTIONS, sectionFor, type NavSection } from "./navigation";
 
 class StageBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   state = { failed: false };
@@ -25,10 +18,13 @@ class StageBoundary extends Component<{ children: ReactNode }, { failed: boolean
     if (this.state.failed) {
       return (
         <main className="page">
-          <header className="page-head">
+          <section className="empty-stage">
             <h1>Esta sección no cargó</h1>
             <p className="lead">Vuelve al inicio y ábrela otra vez.</p>
-          </header>
+            <Link className="button" to="/">
+              Ir al inicio
+            </Link>
+          </section>
         </main>
       );
     }
@@ -36,92 +32,106 @@ class StageBoundary extends Component<{ children: ReactNode }, { failed: boolean
   }
 }
 
+function SectionLinks({
+  active,
+  label,
+  className,
+}: {
+  active: NavSection | null;
+  label: string;
+  className: string;
+}) {
+  return (
+    <nav aria-label={label} className={className}>
+      {NAV_SECTIONS.map((section) => (
+        <Link
+          key={section.id}
+          to={section.path}
+          className={section.id === active?.id ? "nav-link is-active" : "nav-link"}
+          aria-current={section.id === active?.id ? "true" : undefined}
+        >
+          <Icon name={section.icon} />
+          <span>{section.label}</span>
+        </Link>
+      ))}
+    </nav>
+  );
+}
+
 export function Shell() {
   const location = useLocation();
   const token = useSession((state) => state.token);
   const setToken = useSession((state) => state.setToken);
-  const [menuOpen, setMenuOpen] = useState(false);
   const guitarLoading = useGuitarLoading();
+  const section = sectionFor(location.pathname);
   const sessionHere = location.pathname === "/entrar" || location.pathname === "/registro";
 
+  // Cada pantalla empieza arriba: en un celular, la anterior pudo quedar muy abajo.
   useEffect(() => {
-    setMenuOpen(false);
+    window.scrollTo(0, 0);
   }, [location.pathname]);
 
   return (
-    <div className="shell">
+    <div className="shell" data-section={section?.id ?? "inicio"}>
       <a className="skip" href="#contenido">
         Saltar al contenido
       </a>
-      <header className={menuOpen ? "topbar is-open" : "topbar"}>
+      <header className="topbar">
         <Link to="/" className="brand">
           <span className="brand-mark" aria-hidden="true">
-            <svg viewBox="0 0 36 36" width="36" height="36">
-              <circle cx="18" cy="18" r="16" />
-              <circle cx="18" cy="18" r="6" />
-              <path d="M18 2.5v6.5M18 27v6.5M2.5 18h6.5M27 18h6.5" />
-            </svg>
+            <Icon name="guitar" size={22} />
           </span>
           <span className="brand-name">GuitarCoach AI</span>
         </Link>
+        <SectionLinks active={section} label="Principal" className="nav-main" />
         <div className="topbar-tools">
-          <button
-            type="button"
-            className="nav-toggle"
-            aria-expanded={menuOpen}
-            aria-controls="menu-principal"
-            onClick={() => setMenuOpen((open) => !open)}
-          >
-            {menuOpen ? "Cerrar" : "Menú"}
-          </button>
-          <nav id="menu-principal" aria-label="Principal" className="nav-main">
-            {LINKS.map(([path, label]) => (
-              <NavLink
-                key={path}
-                to={path}
-                end={path === "/"}
-                className={({ isActive }) => (isActive ? "nav-link is-active" : "nav-link")}
-              >
-                {label}
-              </NavLink>
-            ))}
-          </nav>
+          <StreakBadge />
+          <ThemeToggle />
           {token ? (
-            <button type="button" className="nav-link nav-account" onClick={() => setToken(null)}>
-              Salir
+            <button type="button" className="nav-account" onClick={() => setToken(null)}>
+              <Icon name="logout" size={18} />
+              <span>Salir</span>
             </button>
           ) : (
-            <NavLink
-              to="/entrar"
-              className={sessionHere ? "nav-link nav-account is-active" : "nav-link nav-account"}
-            >
-              Iniciar sesión
+            <NavLink to="/entrar" className={sessionHere ? "nav-account is-active" : "nav-account"}>
+              <Icon name="user" size={18} />
+              <span>Iniciar sesión</span>
             </NavLink>
           )}
-          <ThemeToggle />
         </div>
       </header>
-      <div className="neck" aria-hidden="true">
-        <span />
-        <span />
-        <span />
-        <span />
-        <span />
-        <span />
-      </div>
+      {section && section.pages.length > 0 ? (
+        <nav className="subnav" aria-label={`Páginas de ${section.label}`}>
+          {section.pages.map((page) => (
+            <NavLink
+              key={page.path}
+              to={page.path}
+              className={({ isActive }) => (isActive ? "subnav-link is-active" : "subnav-link")}
+            >
+              <Icon name={page.icon} size={18} />
+              <span>{page.label}</span>
+            </NavLink>
+          ))}
+        </nav>
+      ) : null}
       <div id="contenido" className="stage">
         <StageBoundary key={location.pathname}>
           <Outlet />
         </StageBoundary>
       </div>
+      <AchievementToast />
       {guitarLoading ? (
         <p className="guitar-loading" role="status">
           Cargando la guitarra…
         </p>
       ) : null}
-      <p className="sample-credit">
-        Guitarra de acero grabada: FluidR3 GM, Frank Wen, CC BY 3.0, a través de midi-js-soundfonts.
-      </p>
+      <footer className="site-footer">
+        <p className="sample-credit">
+          Guitarra de acero grabada: FluidR3 GM, Frank Wen, CC BY 3.0, a través de
+          midi-js-soundfonts.
+        </p>
+      </footer>
+      <SectionLinks active={section} label="Principal en celular" className="tabbar" />
     </div>
   );
 }

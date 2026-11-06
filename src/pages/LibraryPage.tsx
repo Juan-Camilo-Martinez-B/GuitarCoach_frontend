@@ -1,10 +1,14 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ApiClient, ApiError } from "../api/client";
 import { spanishName } from "../chords/shapes";
-import type { Song, SongStudy } from "../domain/types";
+import type { Song } from "../domain/types";
 import { useSession } from "../store/session";
+import { ChordFigure } from "../ui/ChordDiagram";
+import { Icon } from "../ui/Icon";
+import { PageHeader } from "../ui/PageHeader";
 import { StatusMessage } from "../ui/StatusMessage";
+import { Term } from "../ui/Term";
 
 const apiUrl = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 const CATALOG_QUERY = "GuitarCoach";
@@ -20,8 +24,9 @@ export function LibraryPage() {
   const setTeachingMode = useSession((state) => state.setTeachingMode);
   const setPracticePattern = useSession((state) => state.setPracticePattern);
   const selected = useSession((state) => state.song);
+  const study = useSession((state) => state.study);
   const navigate = useNavigate();
-  const [study, setLocalStudy] = useState<SongStudy | null>(null);
+  const detail = useRef<HTMLElement>(null);
   const [query, setQuery] = useState("");
   const [songs, setSongs] = useState<Song[]>([]);
   const [state, setState] = useState<"idle" | "loading" | "error">("idle");
@@ -51,13 +56,13 @@ export function LibraryPage() {
 
   async function select(song: Song) {
     setSong(song);
+    setStudy(null);
+    // En una columna, el detalle queda debajo de la lista: se acerca para no perderlo de vista.
+    detail.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
     try {
-      const loaded = await new ApiClient(apiUrl, fetch, token).songStudy(song.id);
-      setStudy(loaded);
-      setLocalStudy(loaded);
+      setStudy(await new ApiClient(apiUrl, fetch, token).songStudy(song.id));
     } catch {
       setStudy(null);
-      setLocalStudy(null);
     }
   }
 
@@ -72,71 +77,90 @@ export function LibraryPage() {
 
   return (
     <main className="page">
-      <header className="page-head">
-        <p className="eyebrow">Cancionero</p>
-        <h1>Biblioteca</h1>
-        <p className="lead">
-          Canciones de práctica listas para tocar, de menor a mayor dificultad.
-        </p>
-      </header>
-      <form className="panel search-bar" onSubmit={(event) => void search(event)}>
-        <label>
-          Buscar por canción o artista
+      <PageHeader icon="library" eyebrow="Paso 2: elige qué tocar" title="Biblioteca">
+        Canciones de práctica, de menor a mayor dificultad. Toca una para ver sus{" "}
+        <Term id="acorde">acordes</Term>.
+      </PageHeader>
+
+      <form className="search-bar" onSubmit={(event) => void search(event)}>
+        <label className="search-field">
+          <span className="visually-hidden">Buscar por canción o artista</span>
+          <Icon name="search" />
           <input
             value={query}
-            placeholder="Por ejemplo: Lamento"
+            placeholder="Busca una canción, por ejemplo: Lamento"
             onChange={(event) => setQuery(event.target.value)}
           />
         </label>
-        <div className="actions">
-          <button type="submit">Buscar</button>
-        </div>
+        <button type="submit">Buscar</button>
       </form>
+
       <StatusMessage state={state} message={message} />
       {state === "idle" && message ? <p className="hint">{message}</p> : null}
-      <ul className="guide-list" aria-label="Canciones">
-        {songs.map((song) => (
-          <li key={song.id}>
-            <button
-              type="button"
-              className="guide-card song-card"
-              aria-pressed={selected?.id === song.id}
-              onClick={() => void select(song)}
-            >
-              <span className="guide-card-title">{song.title}</span>
-              <span className="guide-card-meta">
-                {song.artist} · {song.bpm} BPM
-                {song.songKey ? ` · tono ${spanishName(song.songKey)}` : ""}
-              </span>
-              <span className="song-card-chords">
-                {uniqueChords(song)
-                  .map((chord) => spanishName(chord))
-                  .join(" · ")}
-              </span>
-            </button>
-          </li>
-        ))}
-      </ul>
-      {selected && study ? (
-        <section className="panel">
-          <h2>{selected.title}</h2>
-          <p>{study.summary}</p>
-          <p>Dificultad: {study.difficulty}</p>
-          <div className="actions">
-            <button type="button" onClick={practice}>
-              Practicar esta canción
-            </button>
-          </div>
+
+      <div className="library-layout">
+        <ul className="guide-list" aria-label="Canciones">
+          {songs.map((song) => (
+            <li key={song.id}>
+              <button
+                type="button"
+                className="guide-card song-card"
+                aria-pressed={selected?.id === song.id}
+                onClick={() => void select(song)}
+              >
+                <span className="guide-card-title">{song.title}</span>
+                <span className="guide-card-meta">
+                  {song.artist} · {song.bpm} BPM
+                  {song.songKey ? ` · tono ${spanishName(song.songKey)}` : ""}
+                </span>
+                <span className="song-card-chords">
+                  {uniqueChords(song)
+                    .map((chord) => spanishName(chord))
+                    .join(" · ")}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+
+        <section ref={detail} className="panel song-detail" aria-label="Canción elegida">
+          {selected ? (
+            <>
+              <h2>{selected.title}</h2>
+              {study ? <p className="hint">{study.summary}</p> : null}
+              {study ? <p className="status-pill">Dificultad: {study.difficulty}</p> : null}
+              <p className="hint">Toca un diagrama para oír el acorde.</p>
+              <div className="chord-grid">
+                {uniqueChords(selected).map((symbol) => (
+                  <ChordFigure key={symbol} symbol={symbol} />
+                ))}
+              </div>
+              <button type="button" className="button-large" onClick={practice}>
+                <Icon name="guitar" />
+                Practicar esta canción
+              </button>
+            </>
+          ) : (
+            <>
+              <h2>Elige una canción</h2>
+              <p className="hint">
+                Aquí verás dónde poner los dedos para cada acorde, antes de empezar a tocar.
+              </p>
+            </>
+          )}
         </section>
-      ) : null}
-      <section className="panel guide">
-        <h2>¿Quieres aprender otra canción?</h2>
-        <p>
-          En Mis canciones pegas los acordes de la canción que elijas, o subes un ChordPro o
-          MusicXML, y la app arma una guía por secciones con su rasgueo.
-        </p>
-        <Link className="button" to="/canciones">
+      </div>
+
+      <section className="panel actions actions-split">
+        <div>
+          <h2>¿Quieres aprender otra canción?</h2>
+          <p className="hint">
+            Consigue su archivo gratis y la app arma una guía con sus acordes y su rasgueo.
+          </p>
+        </div>
+        <Link className="button button-ghost" to="/canciones">
           Ir a mis canciones
+          <Icon name="arrowRight" size={18} />
         </Link>
       </section>
     </main>

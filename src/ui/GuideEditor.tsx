@@ -12,6 +12,7 @@ import {
   type GuideStatus,
   type SongGuide,
 } from "../domain/guide";
+import { Term } from "./Term";
 
 interface SectionDraft {
   name: string;
@@ -122,8 +123,9 @@ export function GuideEditor({
     <section className="panel guide-editor" aria-label="Editor de la guía">
       <h2>Corregir la guía</h2>
       <p className="hint">
-        Cada tramo entre | es un compás de {base.beats_per_bar} tiempos. Un punto prolonga el acorde
-        anterior: <code>| D7 . G . |</code>. Rasgueo: D abajo, U arriba, X apagado, - silencio.
+        Solo hace falta si un acorde no te suena bien. Cada tramo entre | es un compás de{" "}
+        {base.beats_per_bar} tiempos y un punto alarga el acorde anterior: <code>| D7 . G . |</code>
+        . En el rasgueo, D es abajo, U arriba, X apagado y - silencio.
       </p>
       <div className="form-grid">
         <label>
@@ -135,7 +137,9 @@ export function GuideEditor({
           <input value={artist} onChange={(event) => setArtist(event.target.value)} />
         </label>
         <label>
-          Tempo (BPM)
+          <span>
+            <Term id="tempo">Tempo</Term> (<Term id="bpm">BPM</Term>)
+          </span>
           <input
             type="number"
             min={20}
@@ -145,7 +149,9 @@ export function GuideEditor({
           />
         </label>
         <label>
-          Cejilla
+          <span>
+            <Term id="cejilla">Cejilla</Term>
+          </span>
           <input
             type="number"
             min={0}

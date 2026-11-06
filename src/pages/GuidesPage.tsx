@@ -1,20 +1,28 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type DragEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ApiClient, ApiError } from "../api/client";
 import { SOURCE_LABEL, type GuideSummary } from "../domain/guide";
+import { useJourney } from "../store/journey";
 import { useSession } from "../store/session";
 import { TAB_ACCEPT } from "../tab/tabFile";
+import { Icon } from "../ui/Icon";
+import { PageHeader } from "../ui/PageHeader";
 import { StatusMessage } from "../ui/StatusMessage";
+import { TabSources } from "../ui/TabSources";
+import { Term } from "../ui/Term";
 
 const apiUrl = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 
 export function GuidesPage() {
   const token = useSession((state) => state.token);
   const notice = useSession((state) => state.notice);
+  const record = useJourney((state) => state.record);
   const navigate = useNavigate();
   const [guides, setGuides] = useState<GuideSummary[]>([]);
   const [state, setState] = useState<"idle" | "loading" | "error">("idle");
   const [message, setMessage] = useState("");
+  const [dragging, setDragging] = useState(false);
+  const busy = state === "loading";
 
   const load = useCallback(async () => {
     if (!token) {
@@ -50,6 +58,7 @@ export function GuidesPage() {
       const { readTab } = await import("../tab/readTab");
       const guide = await readTab(file);
       const created = await new ApiClient(apiUrl, fetch, token).guideFromTab(file, guide);
+      record("propia");
       navigate(`/canciones/${created.id}`);
     } catch (error) {
       setState("error");
@@ -61,99 +70,124 @@ export function GuidesPage() {
     }
   }
 
-  if (!token) {
-    return (
-      <main className="page">
-        <header className="page-head">
-          <p className="eyebrow">Tu cancionero</p>
-          <h1>Mis canciones</h1>
-          <p className="lead">
-            Sube la tablatura de una canción y la app arma su guía de acordes y rasgueo.
-          </p>
-        </header>
-        <section className="empty-stage">
-          <p>{notice ?? "Tus guías se guardan en tu cuenta."}</p>
-          <Link className="button" to="/entrar">
-            Iniciar sesión
-          </Link>
-        </section>
-      </main>
-    );
+  function onDrop(event: DragEvent<HTMLLabelElement>) {
+    event.preventDefault();
+    setDragging(false);
+    if (!busy) {
+      void upload(event.dataTransfer.files[0]);
+    }
+  }
+
+  const dropClasses = ["dropzone"];
+  if (dragging) {
+    dropClasses.push("is-over");
+  }
+  if (busy) {
+    dropClasses.push("is-busy");
   }
 
   return (
     <main className="page">
-      <header className="page-head">
-        <p className="eyebrow">Tu cancionero</p>
-        <h1>Mis canciones</h1>
-        <p className="lead">
-          Sube la tablatura de la canción y practícala por secciones, a tu tempo.
-        </p>
-      </header>
+      <PageHeader icon="music" eyebrow="Tu cancionero" title="Mis canciones">
+        Aprende la canción que tú quieras. Sube su <Term id="tablatura">tablatura</Term> y la app te
+        muestra los <Term id="acorde">acordes</Term> y el <Term id="rasgueo">rasgueo</Term>.
+      </PageHeader>
 
-      <section className="panel guide-new">
-        <h2>Nueva canción</h2>
-        <div className="stack">
-          <p>
-            Sube un archivo de <strong>Guitar Pro</strong> (.gp3, .gp4, .gp5, .gpx o .gp, de Guitar
-            Pro 3 en adelante). La app toma solo la guitarra y saca de ella los acordes, los
-            rasgueos y las notas reales del cover.
-          </p>
-          <label className="button file-button">
-            {state === "loading" ? "Leyendo la tablatura..." : "Elegir tablatura"}
-            <input
-              type="file"
-              accept={TAB_ACCEPT}
-              disabled={state === "loading"}
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                event.target.value = "";
-                void upload(file);
-              }}
-            />
-          </label>
+      <section className="panel upload-flow" aria-label="Agregar una canción">
+        <div className="upload-step">
+          <span className="upload-number">1</span>
+          <div className="upload-body">
+            <h2>Consigue el archivo gratis</h2>
+            <p>
+              Necesitas un <Term id="guitar-pro">archivo Guitar Pro</Term>. Busca tu canción en uno
+              de estos sitios y descárgalo.
+            </p>
+            <TabSources />
+          </div>
         </div>
 
-        <details className="guide-help">
-          <summary>Dónde conseguir tablaturas</summary>
-          <ul>
-            <li>
-              En Ultimate Guitar, busca la canción y filtra por el tipo <em>Guitar Pro</em>. Con una
-              cuenta gratuita se descargan las que suben otros usuarios.
-            </li>
-            <li>
-              Songsterr tiene muy buenas transcripciones; descargarlas requiere Songsterr Plus.
-            </li>
-            <li>Elige la versión con más votos: la guía es tan fiel como la tablatura.</li>
-          </ul>
-        </details>
+        <div className="upload-step">
+          <span className="upload-number">2</span>
+          <div className="upload-body">
+            <h2>Súbelo aquí</h2>
+            {token ? (
+              <label
+                className={dropClasses.join(" ")}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  setDragging(true);
+                }}
+                onDragLeave={() => setDragging(false)}
+                onDrop={onDrop}
+              >
+                <Icon name="upload" size={32} />
+                <strong>{busy ? "Leyendo la tablatura..." : "Elegir tablatura"}</strong>
+                <span>o arrastra el archivo hasta aquí</span>
+                <small>Acepta .gp3, .gp4, .gp5, .gpx y .gp. Máximo 5 MB.</small>
+                <input
+                  type="file"
+                  accept={TAB_ACCEPT}
+                  disabled={busy}
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    event.target.value = "";
+                    void upload(file);
+                  }}
+                />
+              </label>
+            ) : (
+              <div className="stack">
+                <p className="note">{notice ?? "Tus guías se guardan en tu cuenta."}</p>
+                <div className="actions">
+                  <Link className="button" to="/entrar">
+                    <Icon name="user" size={18} />
+                    Iniciar sesión
+                  </Link>
+                  <Link className="button button-ghost" to="/entrar?alta=1">
+                    Crear cuenta gratis
+                  </Link>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="upload-step">
+          <span className="upload-number">3</span>
+          <div className="upload-body">
+            <h2>Practícala a tu ritmo</h2>
+            <p>Escúchala, baja la velocidad y repite solo la parte que te cueste.</p>
+          </div>
+        </div>
       </section>
 
       <StatusMessage state={state} message={message} />
 
-      <section className="panel">
-        <h2>Tus canciones</h2>
-        {guides.length === 0 ? (
-          <p className="hint">Todavía no tienes canciones. Sube la primera arriba.</p>
-        ) : (
-          <ul className="guide-list">
-            {guides.map((guide) => (
-              <li key={guide.id}>
-                <Link to={`/canciones/${guide.id}`} className="guide-card">
-                  <span className="guide-card-title">{guide.title}</span>
-                  <span className="guide-card-meta">
-                    {guide.artist} · {guide.bpm} BPM ·{" "}
-                    {SOURCE_LABEL[guide.sourceKind] ?? guide.sourceKind}
-                  </span>
-                  <span className={`guide-status is-${guide.status}`}>
-                    {guide.status === "revisada" ? "Revisada" : "Borrador"}
-                  </span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+      {token ? (
+        <section className="panel">
+          <h2>Tus canciones</h2>
+          {guides.length === 0 ? (
+            <p className="hint">Todavía no tienes canciones. Sube la primera arriba.</p>
+          ) : (
+            <ul className="guide-list" style={{ marginTop: "0.75rem" }}>
+              {guides.map((guide) => (
+                <li key={guide.id}>
+                  <Link to={`/canciones/${guide.id}`} className="guide-card">
+                    <span className="guide-card-title">{guide.title}</span>
+                    <span className="guide-card-meta">
+                      {guide.artist} · {guide.bpm} BPM ·{" "}
+                      {SOURCE_LABEL[guide.sourceKind] ?? guide.sourceKind}
+                    </span>
+                    <span className={`guide-status is-${guide.status}`}>
+                      {guide.status === "revisada" ? "Revisada" : "Borrador"}
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      ) : null}
     </main>
   );
 }

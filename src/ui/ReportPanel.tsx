@@ -2,7 +2,7 @@ import type { ReportView } from "../domain/types";
 
 export function ReportPanel({ report }: { report: ReportView | null }) {
   if (!report) {
-    return <p className="note">El diagnóstico aparece cuando el tutor termina.</p>;
+    return <p className="note">Aquí aparecerá el diagnóstico cuando pidas un informe.</p>;
   }
   return (
     <article className="panel report">

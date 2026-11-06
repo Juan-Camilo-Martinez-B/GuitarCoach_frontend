@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { stopGuitar } from "../audio/guitarTone";
 import { formatClock } from "../tab/tabFile";
 import { useAlphaTab } from "../tab/useAlphaTab";
+import { Term } from "./Term";
 
 const SPEEDS = [0.5, 0.6, 0.75, 0.9, 1];
 
@@ -84,7 +85,7 @@ export function TabPlayer({ data }: { data: ArrayBuffer }) {
                     tab.setCountIn(event.target.checked);
                   }}
                 />
-                Cuenta de entrada
+                <Term id="cuenta-entrada">Cuenta de entrada</Term>
               </label>
               <label className="check">
                 <input
@@ -95,7 +96,7 @@ export function TabPlayer({ data }: { data: ArrayBuffer }) {
                     tab.setMetronome(event.target.checked);
                   }}
                 />
-                Metrónomo
+                <Term id="metronomo">Metrónomo</Term>
               </label>
               <label className="check">
                 <input
@@ -110,7 +111,12 @@ export function TabPlayer({ data }: { data: ArrayBuffer }) {
               </label>
             </div>
             <div className="actions">
-              <button type="button" onClick={tab.playPause} disabled={!state.ready}>
+              <button
+                type="button"
+                className="button-large"
+                onClick={tab.playPause}
+                disabled={!state.ready}
+              >
                 {state.playing
                   ? "Pausa"
                   : state.ready

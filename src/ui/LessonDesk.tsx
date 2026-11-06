@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { playMidi, playPattern, playStrum, warmNotes } from "../audio/guitarTone";
 import { localShape, placeNote } from "../chords/shapes";
 import { SONG_GUIDES, STRUM_BASICO } from "../domain/course";
@@ -63,11 +63,12 @@ function StringBoard() {
   }, []);
   return (
     <div className="string-board">
-      {STRINGS.map((string) => (
+      {STRINGS.map((string, index) => (
         <button
           key={string.number}
           type="button"
           className="string-row"
+          style={{ "--string-index": index } as CSSProperties}
           onClick={() => playMidi(string.midi)}
         >
           <strong>{string.number}</strong>

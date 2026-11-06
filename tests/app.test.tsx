@@ -12,7 +12,8 @@ describe("rutas", () => {
     );
     expect(html).toContain("GuitarCoach AI");
     expect(html).toContain("El audio se queda en este navegador");
-    expect(html).toContain("Afinador");
+    expect(html).toContain("Practicar");
+    expect(html).toContain("Afina tu guitarra");
     expect(html).toContain("Saltar al contenido");
     expect(html).toContain("Claro");
     expect(html).toContain("Cambiar entre claro, oscuro y sistema");

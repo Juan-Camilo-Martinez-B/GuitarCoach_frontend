@@ -1,13 +1,12 @@
 export const THEME_STORAGE_KEY = "guitarcoach-theme";
-export const THEME_EVENT = "guitarcoach-theme";
 
 export const THEME_CHOICES = ["light", "dark", "system"] as const;
 export type ThemeChoice = (typeof THEME_CHOICES)[number];
 export type ColorScheme = "light" | "dark";
 
 export const THEME_COLORS: Record<ColorScheme, string> = {
-  light: "#e6dfd4",
-  dark: "#17130f",
+  light: "#f8f2e7",
+  dark: "#15100c",
 };
 
 export function isThemeChoice(value: string | null): value is ThemeChoice {
@@ -64,5 +63,4 @@ export function applyTheme(choice: ThemeChoice, systemDark: boolean): void {
   if (meta) {
     meta.setAttribute("content", THEME_COLORS[resolvedScheme(choice, systemDark)]);
   }
-  window.dispatchEvent(new Event(THEME_EVENT));
 }

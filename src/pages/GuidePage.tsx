@@ -26,13 +26,17 @@ import {
   type GuideStatus,
   type SongGuide,
 } from "../domain/guide";
+import { useJourney } from "../store/journey";
 import { rememberVisit } from "../store/lastVisit";
 import { useSession } from "../store/session";
 import { ChordFigure } from "../ui/ChordDiagram";
 import { GuideEditor } from "../ui/GuideEditor";
+import { Icon } from "../ui/Icon";
+import { EmptyState, PageHeader } from "../ui/PageHeader";
 import { StatusMessage } from "../ui/StatusMessage";
 import { queueStrumMarks } from "../ui/strumMarks";
 import { StrumRail } from "../ui/StrumRail";
+import { Term } from "../ui/Term";
 
 // alphaTab pesa más que el resto de la app: solo se descarga si la guía trae tablatura.
 const TabPlayer = lazy(() =>
@@ -193,6 +197,7 @@ export function GuidePage() {
           .filter((note) => note.start >= from - 1e-6 && note.start < to - 1e-6)
           .map((note) => ({ ...note, start: note.start - from }))
       : [];
+    useJourney.getState().record();
     setPlaying(true);
     let delay: number | null;
     try {
@@ -305,12 +310,12 @@ export function GuidePage() {
   if (!token) {
     return (
       <main className="page">
-        <section className="empty-stage">
+        <EmptyState icon="lock">
           <p>{notice ?? "Inicia sesión para abrir tus guías."}</p>
           <Link className="button" to="/entrar">
             Iniciar sesión
           </Link>
-        </section>
+        </EmptyState>
       </main>
     );
   }
@@ -319,7 +324,10 @@ export function GuidePage() {
     return (
       <main className="page">
         <StatusMessage state={state} message={message} />
-        <Link to="/canciones">Volver a mis canciones</Link>
+        <Link className="button button-ghost" to="/canciones">
+          <Icon name="arrowLeft" size={18} />
+          Volver a mis canciones
+        </Link>
       </main>
     );
   }
@@ -329,31 +337,45 @@ export function GuidePage() {
 
   return (
     <main className="page">
-      <header className="page-head">
-        <p className="eyebrow">
-          <Link to="/canciones">Mis canciones</Link> ·{" "}
-          {SOURCE_LABEL[record.sourceKind] ?? record.sourceKind}
+      <Link className="back-link" to="/canciones">
+        <Icon name="arrowLeft" size={18} />
+        Mis canciones
+      </Link>
+      <PageHeader
+        icon="music"
+        eyebrow={SOURCE_LABEL[record.sourceKind] ?? record.sourceKind}
+        title={guide.title}
+      >
+        {guide.artist}
+        <div className="chip-row">
+          <span className="chip">
+            {Math.round(bpmFromUs(usAt(0, guide.tempo ?? [])) * rate)} <Term id="bpm">BPM</Term>
+          </span>
+          <span className="chip">
+            <Term id="compas">Compás</Term> de {guide.beats_per_bar}
+          </span>
+          {guide.tempo && guide.tempo.length > 1 ? (
+            <span className="chip">El tempo cambia en la canción</span>
+          ) : null}
+          {guide.capo > 0 ? (
+            <span className="chip">
+              <Term id="cejilla">Cejilla</Term> en el traste {guide.capo}
+            </span>
+          ) : null}
+          <span className={`guide-status is-${record.status}`}>
+            {record.status === "revisada" ? "Revisada" : "Borrador: revisa los acordes"}
+          </span>
+        </div>
+      </PageHeader>
+      {guide.events?.some((event) => event.origin === "leccion") ? (
+        <p className="note">{lessonHint(guide.beats_per_bar)} Escucha y luego tócalo igual.</p>
+      ) : null}
+      {writtenMelody || hasTab ? null : (
+        <p className="note">
+          Esta guía solo trae acordes, no las notas de la canción. Para oír cada nota tal como
+          suena, sube su tablatura de Guitar Pro en <Link to="/canciones">Mis canciones</Link>.
         </p>
-        <h1>{guide.title}</h1>
-        <p className="lead">
-          {guide.artist} · {Math.round(bpmFromUs(usAt(0, guide.tempo ?? [])) * rate)} BPM · compás
-          de {guide.beats_per_bar}
-          {guide.tempo && guide.tempo.length > 1 ? " · el tempo cambia en la canción" : ""}
-          {guide.capo > 0 ? ` · cejilla en el traste ${guide.capo}` : ""}
-        </p>
-        {guide.events?.some((event) => event.origin === "leccion") ? (
-          <p className="lead">{lessonHint(guide.beats_per_bar)} Escucha y luego tócalo igual.</p>
-        ) : null}
-        {writtenMelody || hasTab ? null : (
-          <p className="lead">
-            Esta guía solo trae acordes, no las notas de la canción. Para oír cada nota tal como
-            suena, sube su tablatura de Guitar Pro en <Link to="/canciones">Mis canciones</Link>.
-          </p>
-        )}
-        <span className={`guide-status is-${record.status}`}>
-          {record.status === "revisada" ? "Revisada" : "Borrador: revisa los acordes"}
-        </span>
-      </header>
+      )}
 
       <StatusMessage state={state} message={message} />
       {state === "idle" && message ? (
@@ -370,7 +392,7 @@ export function GuidePage() {
           onCancel={() => setEditing(false)}
         />
       ) : (
-        <>
+        <div className="guide-toolbar">
           {hasTab ? (
             <div className="auth-switch guide-view" role="group" aria-label="Vista de la canción">
               <button
@@ -391,8 +413,21 @@ export function GuidePage() {
                 Partitura
               </button>
             </div>
-          ) : null}
-        </>
+          ) : (
+            <span />
+          )}
+          <button
+            type="button"
+            className="button-ghost"
+            onClick={() => {
+              stop();
+              setEditing(true);
+            }}
+          >
+            <Icon name="edit" size={18} />
+            Ajustar la carta
+          </button>
+        </div>
       )}
 
       {!editing && hasTab && view === "partitura" ? (
@@ -408,9 +443,35 @@ export function GuidePage() {
       {editing || (hasTab && view === "partitura") ? null : (
         <>
           <section className="panel guide-player" aria-label="Reproductor">
+            <div className="actions player-actions">
+              {playing ? (
+                <button type="button" className="button-large is-listening" onClick={stop}>
+                  <Icon name="stop" />
+                  Detener
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="button-large"
+                  onClick={() => void play()}
+                  disabled={shapes.length === 0}
+                >
+                  <Icon name="play" />
+                  Escuchar
+                </button>
+              )}
+              <button
+                type="button"
+                className="button-ghost button-large"
+                onClick={() => void practice()}
+              >
+                <Icon name="mic" />
+                Practicar con el micrófono
+              </button>
+            </div>
             <div className="player-controls">
               <label>
-                Tramo
+                Qué parte tocar
                 <select
                   value={range === "all" ? "all" : String(range)}
                   onChange={(event) => {
@@ -446,7 +507,7 @@ export function GuidePage() {
                   checked={countIn}
                   onChange={(event) => setCountIn(event.target.checked)}
                 />
-                Cuenta de entrada
+                <Term id="cuenta-entrada">Cuenta de entrada</Term>
               </label>
               <label className="check">
                 <input
@@ -454,7 +515,7 @@ export function GuidePage() {
                   checked={metronome}
                   onChange={(event) => setMetronome(event.target.checked)}
                 />
-                Metrónomo
+                <Term id="metronomo">Metrónomo</Term>
               </label>
               <label className="check">
                 <input
@@ -465,50 +526,19 @@ export function GuidePage() {
                 Repetir
               </label>
               {melody.length > 0 ? (
-                <label
-                  className="check"
-                  title={
-                    writtenMelody
-                      ? "Las notas que trae el archivo."
-                      : "Fundamental y tercera de cada acorde. No es la melodía de la canción."
-                  }
-                >
+                <label className="check">
                   <input
                     type="checkbox"
                     checked={withMelody}
                     onChange={(event) => setWithMelody(event.target.checked)}
                   />
-                  {writtenMelody ? "Melodía" : "Guía armónica"}
+                  {writtenMelody ? "Melodía" : <Term id="guia-armonica">Guía armónica</Term>}
                 </label>
               ) : null}
             </div>
-            <div className="actions">
-              {playing ? (
-                <button type="button" onClick={stop}>
-                  Detener
-                </button>
-              ) : (
-                <button type="button" onClick={() => void play()} disabled={shapes.length === 0}>
-                  Escuchar
-                </button>
-              )}
-              <button type="button" className="button-ghost" onClick={() => void practice()}>
-                Practicar con el micrófono
-              </button>
-              <button
-                type="button"
-                className="button-ghost"
-                onClick={() => {
-                  stop();
-                  setEditing(true);
-                }}
-              >
-                Ajustar la carta
-              </button>
-            </div>
           </section>
 
-          <section className="panel song-lesson guide-now">
+          <section className="panel guide-now">
             {current ? (
               <div className="guide-now-chords">
                 <div>
@@ -517,7 +547,7 @@ export function GuidePage() {
                 </div>
                 {following ? (
                   <div className="guide-next">
-                    <p className="eyebrow">Después</p>
+                    <p className="eyebrow">Sigue</p>
                     <strong>{spanishName(following.chord)}</strong>
                   </div>
                 ) : null}
@@ -542,8 +572,8 @@ export function GuidePage() {
             ) : (
               <>
                 <p className="hint">
-                  Un compás del patrón: escucha y copia estas flechas. El número es cuántos tiempos
-                  dura cada golpe. Aire no suena y deja sonar el acorde.
+                  Copia estas flechas: ↓ mano hacia abajo, ↑ hacia arriba y × golpe apagado. El
+                  número indica cuántos tiempos dura. «Aire» no toca: deja sonar el acorde.
                 </p>
                 <div className="event-strip">
                   {focusStrum.map((event, index) => {

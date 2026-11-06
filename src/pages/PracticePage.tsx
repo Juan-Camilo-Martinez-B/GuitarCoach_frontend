@@ -11,15 +11,37 @@ import type { Song, SongStudy, StudyStep } from "../domain/types";
 import { layoutChart } from "../game/ChartRenderer";
 import { judgementVerdict } from "../game/chordVerdict";
 import { practiceCommand, type GamePhase } from "../game/GameLoop";
+import { useJourney } from "../store/journey";
 import { useSession } from "../store/session";
 import { ChordFigure } from "../ui/ChordDiagram";
+import { Icon } from "../ui/Icon";
+import { EmptyState, PageHeader } from "../ui/PageHeader";
 import { queueStrumMarks } from "../ui/strumMarks";
 import { StrumRail } from "../ui/StrumRail";
+import { GlossaryText, Term } from "../ui/Term";
 
 const apiUrl = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 
 type Drill = "acorde" | "rasgueo" | "progresion";
 type Mark = "bien" | "no";
+
+const DRILLS: Array<{ id: Drill; title: string; text: string }> = [
+  {
+    id: "acorde",
+    title: "Acorde solo",
+    text: "Arma un acorde. El micrófono te dice si suena bien.",
+  },
+  {
+    id: "rasgueo",
+    title: "Acorde y rasgueo",
+    text: "Suma el movimiento de la mano con las flechas.",
+  },
+  {
+    id: "progresion",
+    title: "Progresión",
+    text: "Toca los acordes en orden y guarda tu resultado.",
+  },
+];
 type StopListening = () => void | Promise<void>;
 
 function chordAt(bar: number, beat: number, bpm: number): number {
@@ -40,6 +62,7 @@ export function PracticePage() {
   const study = useSession((state) => state.study);
   const token = useSession((state) => state.token);
   const setLastAttemptId = useSession((state) => state.setLastAttemptId);
+  const record = useJourney((state) => state.record);
   const [drill, setDrill] = useState<Drill>("acorde");
   const [phase, setPhase] = useState<GamePhase>("idle");
   const [active, setActive] = useState(-1);
@@ -110,6 +133,7 @@ export function PracticePage() {
     if (!stream) {
       return;
     }
+    record("tocar");
     const withStrum = drillRef.current === "rasgueo";
     heardRef.current = [];
     setListening(true);
@@ -211,6 +235,7 @@ export function PracticePage() {
       setPhase("idle");
       return;
     }
+    record("tocar");
     startedRef.current = performance.now();
     const chart = practiceSteps(song, study);
     const symbols = [...new Set(chart.map((item) => item.symbol))];
@@ -305,16 +330,15 @@ export function PracticePage() {
   if (!song) {
     return (
       <main className="page">
-        <header className="page-head">
-          <p className="eyebrow">Sala de ensayo</p>
-          <h1>Práctica</h1>
-        </header>
-        <section className="empty-stage">
-          <p>Elige una canción en la biblioteca.</p>
+        <PageHeader icon="mic" eyebrow="Paso 3: a tocar" title="Práctica">
+          Tocas tu guitarra y la app te escucha para decirte si el acorde suena bien.
+        </PageHeader>
+        <EmptyState icon="guitar" title="Primero elige una canción">
+          <p>Elige una canción en la biblioteca. Las primeras son muy fáciles.</p>
           <Link className="button" to="/biblioteca">
             Abrir biblioteca
           </Link>
-        </section>
+        </EmptyState>
       </main>
     );
   }
@@ -329,6 +353,7 @@ export function PracticePage() {
   const bpm = song.bpm;
 
   function hearChart() {
+    record("tocar");
     listenTicket.current += 1;
     const ticket = listenTicket.current;
     listenRef.current.forEach((id) => window.clearTimeout(id));
@@ -354,165 +379,211 @@ export function PracticePage() {
   }
 
   return (
-    <main className="page" tabIndex={0} onKeyDown={(event) => onKeyDown(event.key)}>
-      <header className="page-head">
-        <p className="eyebrow">Carta en curso</p>
-        <h1>{song.title}</h1>
-        <p className="lead">
-          {song.artist} · {song.bpm} BPM
-        </p>
-      </header>
-      <div className="auth-switch" role="group" aria-label="Modalidad de práctica">
-        <button type="button" aria-pressed={drill === "acorde"} onClick={() => choose("acorde")}>
-          Acorde solo
-        </button>
-        <button type="button" aria-pressed={drill === "rasgueo"} onClick={() => choose("rasgueo")}>
-          Acorde y rasgueo
-        </button>
-        <button
-          type="button"
-          aria-pressed={drill === "progresion"}
-          onClick={() => choose("progresion")}
-        >
-          Progresión
-        </button>
-      </div>
-      <p className={`verdict is-${verdictKind}`} role="status">
-        {verdict}
-      </p>
-      {drill !== "progresion" ? (
-        <div className="actions">
+    <main
+      className="page"
+      tabIndex={0}
+      onKeyDown={(event) => {
+        // Espacio y Enter ya activan el control enfocado: no deben iniciar otra acción.
+        if (!(event.target as HTMLElement).closest("button, a, input, select")) {
+          onKeyDown(event.key);
+        }
+      }}
+    >
+      <PageHeader icon="mic" eyebrow="Carta en curso" title={song.title}>
+        {song.artist} · {song.bpm} <Term id="bpm">BPM</Term>
+      </PageHeader>
+
+      <div className="drill-picker" role="group" aria-label="Modalidad de práctica">
+        {DRILLS.map((item) => (
           <button
+            key={item.id}
             type="button"
-            aria-pressed={listening}
-            onClick={() => void (listening ? stopListening() : startListening())}
+            className="drill-card"
+            aria-pressed={drill === item.id}
+            onClick={() => choose(item.id)}
           >
-            {listening ? "Dejar de escuchar" : "Escuchar mi guitarra"}
+            {item.title}
+            <small>{item.text}</small>
           </button>
-        </div>
-      ) : null}
-      <p className="hint">
-        El micrófono compara todas las notas que suenan con las del acorde. El audio no sale de este
-        navegador.
-      </p>
-      <ol className="chart" aria-label="Carta">
-        {boxes.map((box, index) => (
-          <li key={`${box.x}-${box.symbol}`} className={index === shown ? "is-now" : undefined}>
-            <button type="button" className="chart-hit" onClick={() => setPicked(index)}>
-              {box.symbol}
-              <small>
-                {marks[index] === "bien"
-                  ? "Bien"
-                  : marks[index] === "no"
-                    ? "No"
-                    : `${beatsOf(steps, index)} t`}
-              </small>
-            </button>
-          </li>
         ))}
-      </ol>
-      {step ? (
-        <section className="panel song-lesson">
-          <ChordFigure symbol={step.symbol} />
-          {drill !== "acorde" ? (
-            <StrumRail
-              pattern={pattern}
-              active={arrow}
-              onStrum={(direction, index) => {
-                setArrow(index);
-                void shapeFor(step.symbol).then((found) => {
-                  if (found) {
-                    playStrum(found, direction);
-                  }
-                });
-              }}
-            />
-          ) : null}
-          {drill === "rasgueo" ? <p className="hint">{pattern.hint}</p> : null}
-          <div className="actions">
-            <button
-              type="button"
-              className="button-ghost"
-              onClick={() => setPicked(Math.max(0, shown - 1))}
-            >
-              Anterior
-            </button>
-            <button
-              type="button"
-              className="button-ghost"
-              onClick={() => setPicked(Math.min(steps.length - 1, shown + 1))}
-            >
-              Siguiente
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                void shapeFor(step.symbol).then((found) => {
-                  if (found) {
-                    playChord(found);
-                  }
-                });
-              }}
-            >
-              Escuchar el acorde
-            </button>
-            {drill !== "acorde" ? (
-              <button
-                type="button"
-                onClick={() => {
-                  listenTicket.current += 1;
-                  const ticket = listenTicket.current;
-                  listenRef.current.forEach((id) => window.clearTimeout(id));
-                  listenRef.current = [];
-                  void shapeFor(step.symbol)
-                    .then((found) =>
-                      found && ticket === listenTicket.current
-                        ? playPattern(found, song.bpm, pattern)
-                        : [],
-                    )
-                    .then((hits) => {
-                      if (ticket !== listenTicket.current || hits.length === 0) {
-                        return;
-                      }
-                      listenRef.current = queueStrumMarks(
-                        hits,
-                        (hit) => setArrow(hit.hit),
-                        () => setArrow(-1),
-                      );
-                    });
-                }}
-              >
-                Escuchar el rasgueo
-              </button>
-            ) : null}
-            {drill === "progresion" ? (
-              <button type="button" onClick={hearChart}>
-                Escuchar la canción
-              </button>
-            ) : null}
-          </div>
-        </section>
-      ) : null}
+      </div>
+
       {token ? null : (
         <p className="note">
           Puedes practicar sin entrar. Esta práctica no se guardará.{" "}
           <Link to="/entrar">Inicia sesión</Link> para conservarla.
         </p>
       )}
-      {drill === "progresion" ? (
-        <div className="actions">
-          <button type="button" onClick={() => onKeyDown(" ")}>
-            Empezar
-          </button>
-          <button className="button-ghost" type="button" onClick={() => void finish()}>
-            Cerrar intento
-          </button>
+
+      <section className="panel practice-console" aria-label="Lo que escucha la app">
+        <div className="stack">
+          <p className={`verdict is-${verdictKind}`} role="status">
+            {verdict}
+          </p>
+          <p className="hint">
+            El micrófono compara las notas que suenan con las del acorde. El audio no sale de este
+            navegador.
+          </p>
         </div>
+        <div className="actions">
+          {drill === "progresion" ? (
+            <>
+              <button type="button" className="button-large" onClick={() => onKeyDown(" ")}>
+                <Icon name="play" />
+                Empezar
+              </button>
+              <button
+                className="button-ghost button-large"
+                type="button"
+                onClick={() => void finish()}
+              >
+                Cerrar intento
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              className={listening ? "button-large is-listening" : "button-large"}
+              aria-pressed={listening}
+              onClick={() => void (listening ? stopListening() : startListening())}
+            >
+              <Icon name={listening ? "stop" : "mic"} />
+              {listening ? "Dejar de escuchar" : "Escuchar mi guitarra"}
+            </button>
+          )}
+        </div>
+      </section>
+
+      <section className="stack" aria-label="Acordes de la canción">
+        <p className="hint">
+          Esta es la <Term id="carta">carta</Term>: toca un acorde para verlo.
+        </p>
+        <ol className="chart" aria-label="Carta">
+          {boxes.map((box, index) => (
+            <li key={`${box.x}-${box.symbol}`} className={index === shown ? "is-now" : undefined}>
+              <button type="button" className="chart-hit" onClick={() => setPicked(index)}>
+                {box.symbol}
+                <small>
+                  {marks[index] === "bien"
+                    ? "Bien"
+                    : marks[index] === "no"
+                      ? "No"
+                      : `${beatsOf(steps, index)} t`}
+                </small>
+              </button>
+            </li>
+          ))}
+        </ol>
+      </section>
+
+      {step ? (
+        <section className="panel practice-chord">
+          <ChordFigure symbol={step.symbol} />
+          <div className="practice-chord-tools">
+            {drill !== "acorde" ? (
+              <StrumRail
+                pattern={pattern}
+                active={arrow}
+                onStrum={(direction, index) => {
+                  setArrow(index);
+                  void shapeFor(step.symbol).then((found) => {
+                    if (found) {
+                      playStrum(found, direction);
+                    }
+                  });
+                }}
+              />
+            ) : (
+              <p className="hint">
+                Los puntos son tus dedos, las líneas verticales son las cuerdas y las horizontales,
+                los trastes.
+              </p>
+            )}
+            {drill === "rasgueo" ? (
+              <p className="hint">
+                <GlossaryText text={pattern.hint} />
+              </p>
+            ) : null}
+            <div className="actions">
+              <button
+                type="button"
+                className="button-ghost"
+                onClick={() => {
+                  void shapeFor(step.symbol).then((found) => {
+                    if (found) {
+                      playChord(found);
+                    }
+                  });
+                }}
+              >
+                <Icon name="sound" size={18} />
+                Escuchar el acorde
+              </button>
+              {drill !== "acorde" ? (
+                <button
+                  type="button"
+                  className="button-ghost"
+                  onClick={() => {
+                    listenTicket.current += 1;
+                    const ticket = listenTicket.current;
+                    listenRef.current.forEach((id) => window.clearTimeout(id));
+                    listenRef.current = [];
+                    void shapeFor(step.symbol)
+                      .then((found) =>
+                        found && ticket === listenTicket.current
+                          ? playPattern(found, song.bpm, pattern)
+                          : [],
+                      )
+                      .then((hits) => {
+                        if (ticket !== listenTicket.current || hits.length === 0) {
+                          return;
+                        }
+                        listenRef.current = queueStrumMarks(
+                          hits,
+                          (hit) => setArrow(hit.hit),
+                          () => setArrow(-1),
+                        );
+                      });
+                  }}
+                >
+                  <Icon name="sound" size={18} />
+                  Escuchar el rasgueo
+                </button>
+              ) : null}
+              {drill === "progresion" ? (
+                <button type="button" className="button-ghost" onClick={hearChart}>
+                  <Icon name="sound" size={18} />
+                  Escuchar la canción
+                </button>
+              ) : null}
+            </div>
+            <div className="actions">
+              <button
+                type="button"
+                className="button-ghost"
+                onClick={() => setPicked(Math.max(0, shown - 1))}
+              >
+                <Icon name="arrowLeft" size={18} />
+                Anterior
+              </button>
+              <button
+                type="button"
+                className="button-ghost"
+                onClick={() => setPicked(Math.min(steps.length - 1, shown + 1))}
+              >
+                Siguiente
+                <Icon name="arrowRight" size={18} />
+              </button>
+            </div>
+          </div>
+        </section>
       ) : null}
+
       {study ? <p className="hint">{study.summary}</p> : null}
       {drill === "progresion" ? (
         <p className="hint">
-          Espacio empieza. Enter cierra el intento. <Link to="/informe">Ver el informe</Link>
+          <span className="keyboard-hint">Espacio empieza. Enter cierra el intento. </span>
+          <Link to="/informe">Ver el informe</Link>
         </p>
       ) : null}
     </main>

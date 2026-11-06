@@ -2,10 +2,15 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { ApiClient, ApiError } from "../api/client";
 import type { AttemptSummary, CoachPlan, ReportView } from "../domain/types";
+import { useJourney } from "../store/journey";
 import { useSession } from "../store/session";
+import { Achievements } from "../ui/Achievements";
+import { Icon } from "../ui/Icon";
+import { EmptyState, PageHeader } from "../ui/PageHeader";
 import { ProgressChart } from "../ui/ProgressChart";
 import { ReportPanel } from "../ui/ReportPanel";
 import { StatusMessage } from "../ui/StatusMessage";
+import { Term } from "../ui/Term";
 
 const apiUrl = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 
@@ -16,6 +21,7 @@ const DATE = new Intl.DateTimeFormat("es", { dateStyle: "medium", timeStyle: "sh
 export function ReportPage() {
   const token = useSession((state) => state.token);
   const lastAttemptId = useSession((state) => state.lastAttemptId);
+  const record = useJourney((state) => state.record);
   const [report, setReport] = useState<ReportView | null>(null);
   const [history, setHistory] = useState<AttemptSummary[]>([]);
   const [chosen, setChosen] = useState<string | null>(lastAttemptId);
@@ -32,11 +38,12 @@ export function ReportPage() {
     try {
       setHistory(await new ApiClient(apiUrl, fetch, token).progress());
       setState("idle");
+      record("avance");
     } catch (error) {
       setState("error");
       setMessage(error instanceof ApiError ? error.message : "No se pudo cargar el progreso.");
     }
-  }, [token]);
+  }, [record, token]);
 
   useEffect(() => {
     void load();
@@ -70,16 +77,16 @@ export function ReportPage() {
   if (!token) {
     return (
       <main className="page">
-        <header className="page-head">
-          <p className="eyebrow">Después del intento</p>
-          <h1>Informe</h1>
-        </header>
-        <section className="empty-stage">
+        <PageHeader icon="chart" eyebrow="Después de tocar" title="Informe y logros">
+          Mira cómo vas y qué te conviene practicar después.
+        </PageHeader>
+        <Achievements />
+        <EmptyState icon="chart" title="Tu informe te espera">
           <p>El informe se arma con los intentos guardados en tu cuenta.</p>
           <Link className="button" to="/entrar">
             Iniciar sesión
           </Link>
-        </section>
+        </EmptyState>
       </main>
     );
   }
@@ -100,14 +107,11 @@ export function ReportPage() {
 
   return (
     <main className="page">
-      <header className="page-head">
-        <p className="eyebrow">Después del intento</p>
-        <h1>Informe</h1>
-        <p className="lead">
-          Elige un intento para que el tutor lo analice, o pide un quiz o una progresión según tu
-          curso.
-        </p>
-      </header>
+      <PageHeader icon="chart" eyebrow="Después de tocar" title="Informe y logros">
+        Elige un <Term id="intento">intento</Term> y el tutor te dirá qué mejorar, o pídele un quiz
+        o una <Term id="progresion">progresión</Term> según lo que ya viste en el curso.
+      </PageHeader>
+
       <div className="auth-switch" role="group" aria-label="Qué analizar">
         <button type="button" aria-pressed={mode === "intento"} onClick={() => setMode("intento")}>
           Un intento
@@ -126,54 +130,75 @@ export function ReportPage() {
       <StatusMessage state={state} message={message} />
       {mode === "intento" ? (
         <section className="panel">
-          <h2>Tus intentos</h2>
+          <div className="section-head">
+            <h2>Tus intentos</h2>
+          </div>
           {recent.length === 0 ? (
             <div className="stack">
               <p className="hint">
                 Todavía no hay intentos guardados. Toca una progresión completa en Práctica y
                 ciérrala para verla aquí.
               </p>
-              <Link className="button" to="/practica">
-                Ir a practicar
-              </Link>
+              <div className="actions">
+                <Link className="button" to="/practica">
+                  <Icon name="guitar" size={18} />
+                  Ir a practicar
+                </Link>
+              </div>
             </div>
           ) : (
             <ul className="attempt-list">
-              {recent.map((attempt) => (
-                <li key={attempt.id} className={attempt.id === chosen ? "is-chosen" : undefined}>
-                  <span className="attempt-song">{attempt.songTitle ?? "Canción"}</span>
-                  <span className="attempt-date">{DATE.format(new Date(attempt.createdAt))}</span>
-                  <span className="attempt-score">{Math.round(attempt.accuracy)} %</span>
-                  <button
-                    type="button"
-                    className="button-ghost"
-                    onClick={() => void askReport(attempt.id)}
-                  >
-                    Ver informe
-                  </button>
-                </li>
-              ))}
+              {recent.map((attempt) => {
+                const score = Math.round(attempt.accuracy);
+                return (
+                  <li key={attempt.id} className={attempt.id === chosen ? "is-chosen" : undefined}>
+                    <span>
+                      <span className="attempt-song">{attempt.songTitle ?? "Canción"}</span>
+                      <span className="attempt-date">
+                        {DATE.format(new Date(attempt.createdAt))}
+                      </span>
+                    </span>
+                    <span className="attempt-score">
+                      {score} %
+                      <span className="score-bar" aria-hidden="true">
+                        <span style={{ width: `${score}%` }} />
+                      </span>
+                    </span>
+                    <button
+                      type="button"
+                      className="button-ghost"
+                      onClick={() => void askReport(attempt.id)}
+                    >
+                      Ver informe
+                    </button>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </section>
       ) : (
         <section className="panel stack">
           <p>
-            Este modo mira los módulos que ya marcaste en el curso. Con la clave de Groq el texto
-            lo escribe el modelo; sin ella, el análisis local igual sirve para practicar.
+            Este modo mira los módulos que ya marcaste en el curso y te propone qué practicar ahora.
           </p>
-          <button type="button" onClick={() => void askCoach()}>
-            Pedir {mode === "quiz" ? "el quiz" : "la progresión"}
-          </button>
+          <div className="actions">
+            <button type="button" onClick={() => void askCoach()}>
+              Pedir {mode === "quiz" ? "el quiz" : "la progresión"}
+            </button>
+          </div>
         </section>
       )}
       <ReportPanel report={shown} />
       {history.length > 1 ? (
         <section className="panel">
-          <h2>Tu precisión en el tiempo</h2>
+          <h2>
+            Tu <Term id="precision">precisión</Term> en el tiempo
+          </h2>
           <ProgressChart points={history} />
         </section>
       ) : null}
+      <Achievements />
     </main>
   );
 }

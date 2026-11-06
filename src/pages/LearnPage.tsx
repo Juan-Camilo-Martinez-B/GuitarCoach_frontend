@@ -1,12 +1,16 @@
 import { useCallback, useEffect, useState, type CSSProperties } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ApiClient, ApiError } from "../api/client";
 import { previewCurriculum } from "../domain/course";
 import type { Curriculum } from "../domain/types";
+import { useJourney } from "../store/journey";
 import { rememberVisit } from "../store/lastVisit";
 import { useSession } from "../store/session";
+import { Icon } from "../ui/Icon";
 import { LessonDesk } from "../ui/LessonDesk";
+import { PageHeader } from "../ui/PageHeader";
 import { StatusMessage } from "../ui/StatusMessage";
+import { GlossaryText } from "../ui/Term";
 
 const apiUrl = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 
@@ -16,15 +20,21 @@ export function LearnPage() {
   const setStudy = useSession((state) => state.setStudy);
   const setTeachingMode = useSession((state) => state.setTeachingMode);
   const setPracticePattern = useSession((state) => state.setPracticePattern);
+  const record = useJourney((state) => state.record);
   const navigate = useNavigate();
+  const [params] = useSearchParams();
   const [course, setCourse] = useState<Curriculum>(previewCurriculum);
-  const [openId, setOpenId] = useState<string | null>(previewCurriculum().lessons[0]?.id ?? null);
+  const [openId, setOpenId] = useState<string | null>(
+    () => params.get("modulo") ?? previewCurriculum().lessons[0]?.id ?? null,
+  );
   const [state, setState] = useState<"idle" | "loading" | "error">("idle");
   const [message, setMessage] = useState("");
+  const [courseReady, setCourseReady] = useState(!token);
 
   const load = useCallback(async () => {
     if (!token) {
       setCourse(previewCurriculum());
+      setCourseReady(true);
       setState("idle");
       return;
     }
@@ -32,7 +42,13 @@ export function LearnPage() {
     try {
       const next = await new ApiClient(apiUrl, fetch, token).curriculum();
       setCourse(next);
-      setOpenId((current) => current ?? next.lessons.find((lesson) => !lesson.locked)?.id ?? null);
+      setCourseReady(true);
+      // Un módulo aún bloqueado no se puede abrir: se va al primero disponible.
+      setOpenId((current) =>
+        next.lessons.some((lesson) => lesson.id === current && !lesson.locked)
+          ? current
+          : (next.lessons.find((lesson) => !lesson.locked)?.id ?? null),
+      );
       setState("idle");
     } catch (error) {
       setState("error");
@@ -53,6 +69,7 @@ export function LearnPage() {
     setState("loading");
     try {
       await new ApiClient(apiUrl, fetch, token).completeLesson(lessonId);
+      record();
       await load();
     } catch (error) {
       setState("error");
@@ -105,7 +122,10 @@ export function LearnPage() {
     if (lesson) {
       rememberVisit({ path: "/aprendizaje", label: `Seguir el curso: ${lesson.title}` });
     }
-  }, [course, openId]);
+    if (courseReady && lesson?.id === "acorde" && !lesson.locked) {
+      record("acorde");
+    }
+  }, [course, courseReady, openId, record]);
 
   const lessons = course.lessons ?? [];
   const current = lessons.find((lesson) => lesson.id === openId) ?? lessons[0] ?? null;
@@ -113,6 +133,8 @@ export function LearnPage() {
     0,
     lessons.findIndex((lesson) => lesson.id === current?.id),
   );
+  const previous = lessons[currentIndex - 1];
+  const following = lessons[currentIndex + 1];
   const done = lessons.filter((lesson) => lesson.status === "completed").length;
   const progress = {
     "--done": lessons.length === 0 ? 0 : done / lessons.length,
@@ -120,13 +142,9 @@ export function LearnPage() {
 
   return (
     <main className="page">
-      <header className="page-head">
-        <p className="eyebrow">Curso</p>
-        <h1>Aprendizaje</h1>
-        <p className="lead">
-          Del nombre de las cuerdas a tres canciones cortas. El avance queda guardado.
-        </p>
-      </header>
+      <PageHeader icon="book" eyebrow="Curso" title="Aprendizaje">
+        Del nombre de las cuerdas a tres canciones cortas. Mira, escucha y prueba en cada módulo.
+      </PageHeader>
       {token ? null : (
         <p className="note">
           El temario se puede leer ahora. <Link to="/entrar">Inicia sesión</Link> para guardar el
@@ -157,7 +175,7 @@ export function LearnPage() {
         <aside className="course-path">
           <div className="course-progress" style={progress}>
             <p>
-              <span>Recorrido</span>
+              <span>Tu recorrido</span>
               <strong>
                 {done} de {lessons.length}
               </strong>
@@ -182,7 +200,15 @@ export function LearnPage() {
                   disabled={lesson.locked}
                   onClick={() => setOpenId(lesson.id)}
                 >
-                  <span className="lesson-index">{index + 1}</span>
+                  <span className="lesson-index">
+                    {lesson.status === "completed" ? (
+                      <Icon name="check" size={18} />
+                    ) : lesson.locked ? (
+                      <Icon name="lock" size={16} />
+                    ) : (
+                      index + 1
+                    )}
+                  </span>
                   <span className="lesson-copy">
                     <span className="lesson-title">{lesson.title}</span>
                     <span className="lesson-state">
@@ -203,33 +229,65 @@ export function LearnPage() {
             <header className="lesson-head">
               <p className="eyebrow">Módulo {String(currentIndex + 1).padStart(2, "0")}</p>
               <h2>{current.title}</h2>
-              <p>{current.summary}</p>
+              <p>
+                <GlossaryText text={current.summary} />
+              </p>
             </header>
             <div className="lesson-desk">
               <LessonDesk lessonId={current.id} />
             </div>
             <ul className="lesson-points">
               {(current.points ?? []).map((point) => (
-                <li key={point}>{point}</li>
+                <li key={point}>
+                  <GlossaryText text={point} />
+                </li>
               ))}
             </ul>
-            <div className="actions">
-              <button
-                type="button"
-                disabled={current.locked || current.status === "completed" || course.needsReview}
-                onClick={() => void complete(current.id)}
-              >
-                {current.status === "completed" ? "Módulo guardado" : "Marcar como visto"}
-              </button>
-              {current.songTitle ? (
+            <div className="actions actions-split">
+              <div className="actions">
                 <button
                   type="button"
                   className="button-ghost"
-                  onClick={() => void practice(current.songTitle ?? "")}
+                  disabled={!previous}
+                  onClick={() => previous && setOpenId(previous.id)}
                 >
-                  Practicar acordes
+                  <Icon name="arrowLeft" size={18} />
+                  Anterior
                 </button>
-              ) : null}
+                <button
+                  type="button"
+                  className="button-ghost"
+                  disabled={!following || following.locked}
+                  onClick={() => following && setOpenId(following.id)}
+                >
+                  Siguiente
+                  <Icon name="arrowRight" size={18} />
+                </button>
+              </div>
+              <div className="actions">
+                {current.songTitle ? (
+                  <button
+                    type="button"
+                    className="button-ghost"
+                    onClick={() => void practice(current.songTitle ?? "")}
+                  >
+                    <Icon name="guitar" size={18} />
+                    Practicar acordes
+                  </button>
+                ) : null}
+                {token ? (
+                  <button
+                    type="button"
+                    disabled={
+                      current.locked || current.status === "completed" || course.needsReview
+                    }
+                    onClick={() => void complete(current.id)}
+                  >
+                    <Icon name="check" size={18} />
+                    {current.status === "completed" ? "Módulo guardado" : "Marcar como visto"}
+                  </button>
+                ) : null}
+              </div>
             </div>
           </section>
         ) : null}
