@@ -1,12 +1,22 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ApiClient, ApiError } from "../api/client";
-import { playGuide, playStrum, stopGuitar, warmShape } from "../audio/guitarTone";
+import { guideFromWire } from "../api/guides";
+import {
+  playChord,
+  playGuide,
+  playPattern,
+  playStrum,
+  stopGuitar,
+  warmShape,
+} from "../audio/guitarTone";
 import { shapeFor, spanishName, type ChordShape } from "../chords/shapes";
 import type { StrumHit } from "../domain/course";
 import {
   bpmFromUs,
+  chordChangeLabels,
   ensureGrid,
+  eventsInBar,
   firstPlayedSection,
   guideHits,
   hasInferredTiming,
@@ -37,6 +47,7 @@ import { StatusMessage } from "../ui/StatusMessage";
 import { queueStrumMarks } from "../ui/strumMarks";
 import { StrumRail } from "../ui/StrumRail";
 import { Term } from "../ui/Term";
+import { isGenericPartName } from "../tab/songParts";
 
 // alphaTab pesa más que el resto de la app: solo se descarga si la guía trae tablatura.
 const TabPlayer = lazy(() =>
@@ -46,10 +57,52 @@ const TabPlayer = lazy(() =>
 const apiUrl = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 const RATES = [0.75, 0.85, 1, 1.1, 1.2, 1.275, 1.3, 1.45];
 
+type Drill = "acorde" | "rasgueo" | "progresion";
+
+const DRILLS: Array<{ id: Drill; title: string; text: string }> = [
+  {
+    id: "acorde",
+    title: "Acorde solo",
+    text: "Mira dónde van los dedos y escucha el acorde.",
+  },
+  {
+    id: "rasgueo",
+    title: "Acorde y rasgueo",
+    text: "Suma el movimiento de la mano con las flechas.",
+  },
+  {
+    id: "progresion",
+    title: "Progresión",
+    text: "Sigue los acordes de la parte elegida, uno tras otro.",
+  },
+];
+
+function beatLabel(beats: number): string {
+  const rounded = Math.round(beats * 10) / 10;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+}
+
+/** Acordes que suenan en la parte elegida: toda la canción o una sola sección. */
+function chordsInPart(guide: SongGuide, range: number | "all"): number[] {
+  if (range === "all") {
+    return guide.chords.map((_, index) => index);
+  }
+  const section = guide.sections[range];
+  if (!section) {
+    return [];
+  }
+  const from = section.start;
+  const to = section.start + section.beats;
+  return guide.chords.flatMap((chord, index) =>
+    chord.start < to - 1e-6 && from < chord.start + chord.beats - 1e-6 ? [index] : [],
+  );
+}
+
 interface Now {
   chord: number;
   section: number;
   hit: number;
+  event: number;
 }
 
 /** Los compases de una sección, cada uno con los índices de los acordes que empiezan en él. */
@@ -90,6 +143,9 @@ export function GuidePage() {
   const [loop, setLoop] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [now, setNow] = useState<Now | null>(null);
+  const [chosen, setChosen] = useState<number | null>(null);
+  const [drill, setDrill] = useState<Drill>("acorde");
+  const [arrow, setArrow] = useState(-1);
   const [editing, setEditing] = useState(false);
   // Con tablatura se elige la vista; por defecto, acordes y rasgueo para tocar.
   const [view, setView] = useState<"acordes" | "partitura">("acordes");
@@ -136,7 +192,19 @@ export function GuidePage() {
     }
     setState("loading");
     try {
-      const loaded = await new ApiClient(apiUrl, fetch, token).guide(guideId);
+      const client = new ApiClient(apiUrl, fetch, token);
+      let loaded = await client.guide(guideId);
+      const unnamed = loaded.guide.sections.every((section) => isGenericPartName(section.name));
+      if (loaded.sourceKind === "tablatura" && loaded.guide.sections.length > 0 && unnamed) {
+        try {
+          const bytes = new Uint8Array(await client.guideTab(guideId));
+          const { readTabBytes } = await import("../tab/readTab");
+          const fresh = await readTabBytes(bytes, loaded.title);
+          loaded = await client.updateGuide(guideId, guideFromWire(fresh), loaded.status);
+        } catch {
+          // Si el archivo no se puede volver a leer, se queda la guía que ya estaba guardada.
+        }
+      }
       setRecord(loaded);
       rememberVisit({ path: `/canciones/${guideId}`, label: `Seguir con ${loaded.title}` });
       setState("idle");
@@ -178,6 +246,7 @@ export function GuidePage() {
     stopGuitar();
     setPlaying(false);
     setNow(null);
+    setArrow(-1);
   }, []);
 
   useEffect(() => stop, [stop]);
@@ -235,7 +304,7 @@ export function GuidePage() {
       marks,
       (mark) => {
         const hit: GuideHit = hits[mark.slot];
-        setNow({ chord: hit.chord, section: hit.section, hit: hit.hit });
+        setNow({ chord: hit.chord, section: hit.section, hit: hit.hit, event: hit.event });
       },
       () => {
         if (loopRef.current) {
@@ -258,6 +327,21 @@ export function GuidePage() {
     } catch (error) {
       setState("error");
       setMessage(error instanceof ApiError ? error.message : "No se pudo guardar la guía.");
+    }
+  }
+
+  async function remove() {
+    if (!window.confirm("¿Eliminar esta canción y su archivo? No se puede deshacer.")) {
+      return;
+    }
+    stop();
+    setState("loading");
+    try {
+      await new ApiClient(apiUrl, fetch, token).deleteGuide(guideId);
+      navigate("/canciones");
+    } catch (error) {
+      setState("error");
+      setMessage(error instanceof ApiError ? error.message : "No se pudo eliminar la canción.");
     }
   }
 
@@ -286,16 +370,15 @@ export function GuidePage() {
 
   const opening = useMemo(() => (guide ? firstPlayedSection(guide) : 0), [guide]);
   const focusSection = now?.section ?? (range === "all" ? opening : range);
-  const focusStrum = useMemo(
-    () => (guide ? strumBar(guide, focusSection) : []),
-    [focusSection, guide],
-  );
   const focusChord = useMemo(() => {
     if (!guide) {
       return -1;
     }
     if (now) {
       return now.chord;
+    }
+    if (chosen !== null && guide.chords[chosen]) {
+      return chosen;
     }
     const start = guide.sections[focusSection]?.start ?? 0;
     // El acorde que está sonando cuando empieza la sección, aunque venga de antes.
@@ -305,7 +388,40 @@ export function GuidePage() {
     return sounding >= 0
       ? sounding
       : guide.chords.findIndex((chord) => chord.start >= start - 1e-6);
+  }, [chosen, focusSection, guide, now]);
+
+  const shownEvents = useMemo(() => {
+    if (!guide) {
+      return [];
+    }
+    const pulse = now ? guide.events?.[now.event]?.pulse : undefined;
+    if (pulse !== undefined) {
+      return eventsInBar(guide, pulse);
+    }
+    return strumBar(guide, focusSection);
   }, [focusSection, guide, now]);
+
+  const changeLabels = useMemo(
+    () => (guide ? chordChangeLabels(guide, shownEvents) : []),
+    [guide, shownEvents],
+  );
+
+  const strikePattern = useMemo(() => {
+    const base = guide
+      ? sectionPattern(guide, focusSection)
+      : { directions: ["abajo" as const], beats: [1], hint: "" };
+    const strikes = shownEvents.filter((event) => event.contact !== "aire");
+    if (strikes.length === 0) {
+      return base;
+    }
+    return {
+      directions: strikes.map((event) => event.direction),
+      beats: strikes.map((event) => event.span),
+      hint: base.hint,
+    };
+  }, [focusSection, guide, shownEvents]);
+
+  const partIndices = useMemo(() => (guide ? chordsInPart(guide, range) : []), [guide, range]);
 
   if (!token) {
     return (
@@ -333,7 +449,10 @@ export function GuidePage() {
   }
 
   const current = guide.chords[focusChord];
-  const following = guide.chords[focusChord + 1];
+  const partPlace = Math.max(0, partIndices.indexOf(focusChord));
+  const strikeActive = now
+    ? shownEvents.slice(0, now.hit + 1).filter((event) => event.contact !== "aire").length - 1
+    : arrow;
 
   return (
     <main className="page">
@@ -416,17 +535,26 @@ export function GuidePage() {
           ) : (
             <span />
           )}
-          <button
-            type="button"
-            className="button-ghost"
-            onClick={() => {
-              stop();
-              setEditing(true);
-            }}
-          >
-            <Icon name="edit" size={18} />
-            Ajustar la carta
-          </button>
+          <div className="actions">
+            <button
+              type="button"
+              className="button-ghost"
+              onClick={() => {
+                stop();
+                setEditing(true);
+              }}
+            >
+              <Icon name="edit" size={18} />
+              Ajustar la carta
+            </button>
+            <button
+              type="button"
+              className="button-ghost button-danger"
+              onClick={() => void remove()}
+            >
+              Eliminar
+            </button>
+          </div>
         </div>
       )}
 
@@ -476,6 +604,8 @@ export function GuidePage() {
                   value={range === "all" ? "all" : String(range)}
                   onChange={(event) => {
                     stop();
+                    setChosen(null);
+                    setArrow(-1);
                     setRange(event.target.value === "all" ? "all" : Number(event.target.value));
                   }}
                 >
@@ -538,98 +668,240 @@ export function GuidePage() {
             </div>
           </section>
 
-          <section className="panel guide-now">
-            {current ? (
-              <div className="guide-now-chords">
-                <div>
-                  <p className="eyebrow">Ahora</p>
-                  <ChordFigure symbol={current.chord} />
-                </div>
-                {following ? (
-                  <div className="guide-next">
-                    <p className="eyebrow">Sigue</p>
-                    <strong>{spanishName(following.chord)}</strong>
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-            <StrumRail
-              pattern={sectionPattern(guide, focusSection)}
-              active={now?.hit ?? -1}
-              onStrum={(direction) => {
-                const shape = shapes[focusChord];
-                if (shape && !playing) {
-                  playStrum(shape, direction, guide.capo);
-                }
-              }}
-            />
-          </section>
+          <div className="drill-picker" role="group" aria-label="Cómo estudiar esta parte">
+            {DRILLS.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className="drill-card"
+                aria-pressed={drill === item.id}
+                onClick={() => {
+                  setArrow(-1);
+                  setDrill(item.id);
+                }}
+              >
+                {item.title}
+                <small>{item.text}</small>
+              </button>
+            ))}
+          </div>
 
-          <section className="panel guide-grid" aria-label="Rasgueo de la lección">
-            <h2>Rasgueo de {guide.sections[focusSection]?.name}</h2>
-            {focusStrum.length === 0 ? (
-              <p className="hint">En esta sección la guitarra no toca.</p>
+          <section className="stack" aria-label="Acordes de la parte">
+            <p className="hint">
+              Esta es la <Term id="carta">carta</Term> de{" "}
+              {range === "all" ? "toda la canción" : (guide.sections[range]?.name ?? "esta parte")}.
+              Toca un acorde para verlo.
+            </p>
+            {partIndices.length === 0 ? (
+              <p className="hint">Esta parte no tiene acordes.</p>
             ) : (
-              <>
-                <p className="hint">
-                  Copia estas flechas: ↓ mano hacia abajo, ↑ hacia arriba y × golpe apagado. El
-                  número indica cuántos tiempos dura. «Aire» no toca: deja sonar el acorde.
-                </p>
-                <div className="event-strip">
-                  {focusStrum.map((event, index) => {
-                    const label =
-                      event.contact === "aire"
-                        ? "aire"
-                        : event.direction === "arriba"
-                          ? "↑"
-                          : event.direction === "apagado"
-                            ? "×"
-                            : "↓";
-                    return (
-                      <span key={`${event.pulse}-${index}`} className="event-chip">
-                        <span>{label}</span>
-                        <small>{event.span}</small>
-                      </span>
-                    );
-                  })}
-                </div>
-              </>
+              <ol className="chart" aria-label="Carta">
+                {partIndices.map((index) => {
+                  const chord = guide.chords[index];
+                  return (
+                    <li
+                      key={`${chord.chord}-${chord.start}`}
+                      className={index === focusChord ? "is-now" : undefined}
+                    >
+                      <button
+                        type="button"
+                        className="chart-hit"
+                        onClick={() => {
+                          if (playing) {
+                            return;
+                          }
+                          setChosen(index);
+                          setArrow(-1);
+                          const shape = shapes[index];
+                          if (shape) {
+                            playChord(shape);
+                          }
+                        }}
+                      >
+                        {chord.chord}
+                        <small>{beatLabel(chord.beats)} t</small>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ol>
             )}
           </section>
+
+          {current ? (
+            <section className="panel practice-chord">
+              <ChordFigure symbol={current.chord} />
+              <div className="practice-chord-tools">
+                {drill === "acorde" ? (
+                  <p className="hint">
+                    Los puntos son tus dedos, las líneas verticales son las cuerdas y las
+                    horizontales, los trastes.
+                  </p>
+                ) : (
+                  <>
+                    <StrumRail
+                      pattern={strikePattern}
+                      active={strikeActive}
+                      marks={changeLabels
+                        .filter((_, index) => shownEvents[index]?.contact !== "aire")
+                        .map((label) => (label ? spanishName(label) : null))}
+                      onStrum={(direction) => {
+                        const shape = shapes[focusChord];
+                        if (shape && !playing) {
+                          playStrum(shape, direction, guide.capo);
+                        }
+                      }}
+                    />
+                    {strikePattern.hint ? <p className="hint">{strikePattern.hint}</p> : null}
+                    <p className="hint">
+                      La etiqueta sobre una flecha marca el golpe en el que cambia el acorde. El
+                      diagrama de la izquierda cambia con él.
+                    </p>
+                  </>
+                )}
+                <div className="actions">
+                  <button
+                    type="button"
+                    className="button-ghost"
+                    onClick={() => {
+                      const shape = shapes[focusChord];
+                      if (shape && !playing) {
+                        playChord(shape);
+                      }
+                    }}
+                  >
+                    <Icon name="sound" size={18} />
+                    Escuchar el acorde
+                  </button>
+                  {drill !== "acorde" ? (
+                    <button
+                      type="button"
+                      className="button-ghost"
+                      onClick={() => {
+                        const shape = shapes[focusChord];
+                        if (!shape || playing) {
+                          return;
+                        }
+                        timers.current.forEach((id) => window.clearTimeout(id));
+                        void playPattern(
+                          shape,
+                          Math.round(bpmFromUs(usAt(0, guide.tempo ?? [])) * rate),
+                          strikePattern,
+                        ).then((hits) => {
+                          if (hits.length === 0) {
+                            return;
+                          }
+                          timers.current = queueStrumMarks(
+                            hits,
+                            (hit) => setArrow(hit.hit),
+                            () => setArrow(-1),
+                          );
+                        });
+                      }}
+                    >
+                      <Icon name="sound" size={18} />
+                      Escuchar el rasgueo
+                    </button>
+                  ) : null}
+                  {drill === "progresion" ? (
+                    <button
+                      type="button"
+                      className="button-ghost"
+                      disabled={!playing && shapes.length === 0}
+                      onClick={() => {
+                        if (playing) {
+                          stop();
+                          return;
+                        }
+                        void play();
+                      }}
+                    >
+                      <Icon name={playing ? "stop" : "sound"} size={18} />
+                      {playing
+                        ? "Detener"
+                        : range === "all"
+                          ? "Escuchar la canción"
+                          : "Escuchar la progresión"}
+                    </button>
+                  ) : null}
+                </div>
+                <div className="actions">
+                  <button
+                    type="button"
+                    className="button-ghost"
+                    disabled={partPlace <= 0}
+                    onClick={() => {
+                      const previous = partIndices[partPlace - 1];
+                      if (previous === undefined || playing) {
+                        return;
+                      }
+                      setChosen(previous);
+                      setArrow(-1);
+                    }}
+                  >
+                    <Icon name="arrowLeft" size={18} />
+                    Anterior
+                  </button>
+                  <button
+                    type="button"
+                    className="button-ghost"
+                    disabled={partPlace >= partIndices.length - 1}
+                    onClick={() => {
+                      const next = partIndices[partPlace + 1];
+                      if (next === undefined || playing) {
+                        return;
+                      }
+                      setChosen(next);
+                      setArrow(-1);
+                    }}
+                  >
+                    Siguiente
+                    <Icon name="arrowRight" size={18} />
+                  </button>
+                </div>
+              </div>
+            </section>
+          ) : null}
         </>
       )}
 
       <section className="guide-sheet" aria-label="Carta de la canción">
-        {guide.sections.map((section, sectionIndex) => (
-          <article
-            key={`${section.name}-${sectionIndex}`}
-            className={sectionIndex === focusSection ? "sheet-section is-now" : "sheet-section"}
-          >
-            <header>
-              <button
-                type="button"
-                className="button-ghost"
-                aria-pressed={range === sectionIndex}
-                onClick={() => {
-                  stop();
-                  setRange(range === sectionIndex ? "all" : sectionIndex);
-                }}
-              >
-                {section.name}
-              </button>
-            </header>
-            <ol className="chart">
-              {sectionBars(guide, sectionIndex).map((bar, barIndex) => (
-                <li
-                  key={barIndex}
-                  className={bar.includes(now?.chord ?? -1) ? "is-now" : undefined}
+        {guide.sections.map((section, sectionIndex) =>
+          range !== "all" && sectionIndex !== range ? null : (
+            <article
+              key={`${section.name}-${sectionIndex}`}
+              className={sectionIndex === focusSection ? "sheet-section is-now" : "sheet-section"}
+            >
+              <header>
+                <button
+                  type="button"
+                  className="button-ghost"
+                  aria-pressed={range === sectionIndex}
+                  onClick={() => {
+                    stop();
+                    setChosen(null);
+                    setArrow(-1);
+                    setRange(range === sectionIndex ? "all" : sectionIndex);
+                  }}
                 >
-                  {bar.length === 0 ? "·" : bar.map((index) => guide.chords[index].chord).join(" ")}
-                </li>
-              ))}
-            </ol>
-          </article>
-        ))}
+                  {section.name}
+                </button>
+              </header>
+              <ol className="chart">
+                {sectionBars(guide, sectionIndex).map((bar, barIndex) => (
+                  <li
+                    key={barIndex}
+                    className={bar.includes(now?.chord ?? -1) ? "is-now" : undefined}
+                  >
+                    {bar.length === 0
+                      ? "·"
+                      : bar.map((index) => guide.chords[index].chord).join(" ")}
+                  </li>
+                ))}
+              </ol>
+            </article>
+          ),
+        )}
       </section>
     </main>
   );

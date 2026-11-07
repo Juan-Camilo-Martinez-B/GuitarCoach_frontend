@@ -16,9 +16,60 @@ const TUNING = [
   )
   .join("");
 
-function note(step: string, octave: number, string: number, fret: number, extra = ""): string {
-  return `<note><pitch><step>${step}</step><octave>${octave}</octave></pitch><duration>1</duration><voice>1</voice><type>quarter</type>${extra}<notations><technical><string>${string}</string><fret>${fret}</fret></technical></notations></note>`;
+function note(
+  step: string,
+  octave: number,
+  string: number,
+  fret: number,
+  extra = "",
+  duration = 1,
+): string {
+  const type = duration === 4 ? "whole" : duration === 2 ? "half" : "quarter";
+  return `<note>${extra}<pitch><step>${step}</step><octave>${octave}</octave></pitch><duration>${duration}</duration><voice>1</voice><type>${type}</type><notations><technical><string>${string}</string><fret>${fret}</fret></technical></notations></note>`;
 }
+
+function cluster(pieces: string[]): string {
+  return pieces
+    .map((piece, index) => (index === 0 ? piece : piece.replace("<note>", "<note><chord/>")))
+    .join("");
+}
+
+function shape(frets: Array<[string, number, number, number]>, duration = 4): string {
+  return cluster(
+    frets.map(([step, octave, string, fret]) => note(step, octave, string, fret, "", duration)),
+  );
+}
+
+const AM = shape([
+  ["A", 2, 5, 0],
+  ["E", 3, 4, 2],
+  ["A", 3, 3, 2],
+  ["C", 4, 2, 1],
+]);
+const G = shape([
+  ["G", 2, 6, 3],
+  ["B", 2, 5, 2],
+  ["D", 3, 4, 0],
+  ["G", 3, 3, 0],
+]);
+const C = shape([
+  ["C", 3, 5, 3],
+  ["E", 3, 4, 2],
+  ["G", 3, 3, 0],
+  ["C", 4, 2, 1],
+]);
+const F = shape([
+  ["F", 2, 6, 1],
+  ["C", 3, 5, 3],
+  ["F", 3, 4, 3],
+  ["A", 3, 3, 2],
+]);
+const EM = shape([
+  ["E", 2, 6, 0],
+  ["B", 2, 5, 2],
+  ["E", 3, 4, 2],
+  ["G", 3, 3, 0],
+]);
 
 function score(measures: string[], harmony = ""): Uint8Array {
   const attributes = `<attributes><divisions>1</divisions><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line></clef><staff-details><staff-lines>6</staff-lines>${TUNING}</staff-details></attributes><direction><sound tempo="102"/></direction>`;
@@ -73,5 +124,38 @@ describe("de la tablatura a la guía", () => {
     const rest = `<note><rest/><duration>4</duration><voice>1</voice><type>whole</type></note>`;
     const parsed = importer.ScoreLoader.loadScoreFromBytes(score([rest]));
     expect(() => scoreToGuide(parsed, 0, "x")).toThrow(/notas/);
+  });
+
+  it("sigue los acordes cuando el cifrado escrito se corta", () => {
+    const label = `<direction><direction-type><words>Lam</words></direction-type></direction>`;
+    const parsed = importer.ScoreLoader.loadScoreFromBytes(score([`${label}${AM}`, C, G, EM]));
+    const guide = scoreToGuide(parsed, 0, "ligera");
+    expect(guide.chords.map((chord) => chord.chord)).toEqual(["Am", "C", "G", "Em"]);
+    expect(guide.events.map((event) => event.pulse)).toEqual([0, 4, 8, 12]);
+  });
+
+  it("reconoce verso y coro en una tablatura sin marcas", () => {
+    const verse = [AM, G, C, F];
+    const chorus = [C, G, AM, F];
+    const parsed = importer.ScoreLoader.loadScoreFromBytes(
+      score([...verse, ...verse, ...chorus, ...chorus]),
+    );
+    const guide = scoreToGuide(parsed, 0, "ligera");
+    expect(guide.sections.map((section) => section.name)).toEqual([
+      "Verso 1",
+      "Verso 2",
+      "Coro 1",
+      "Coro 2",
+    ]);
+  });
+
+  it("usa las marcas de verso y coro del archivo", () => {
+    const verse = `<direction><direction-type><rehearsal>Verse 1</rehearsal></direction-type></direction>${AM}`;
+    const chorus = `<direction><direction-type><rehearsal>Chorus</rehearsal></direction-type></direction>${C}`;
+    const parsed = importer.ScoreLoader.loadScoreFromBytes(
+      score([verse, G, C, F, AM, G, C, F, chorus, G, AM, F, C, G, AM, F]),
+    );
+    const guide = scoreToGuide(parsed, 0, "ligera");
+    expect(guide.sections.map((section) => section.name)).toEqual(["Verso 1", "Coro"]);
   });
 });

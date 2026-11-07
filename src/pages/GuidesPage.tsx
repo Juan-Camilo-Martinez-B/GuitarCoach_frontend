@@ -70,6 +70,22 @@ export function GuidesPage() {
     }
   }
 
+  async function remove(id: string, title: string) {
+    if (!window.confirm(`¿Eliminar «${title}» y su archivo? No se puede deshacer.`)) {
+      return;
+    }
+    setState("loading");
+    setMessage("");
+    try {
+      await new ApiClient(apiUrl, fetch, token).deleteGuide(id);
+      setGuides((current) => current.filter((guide) => guide.id !== id));
+      setState("idle");
+    } catch (error) {
+      setState("error");
+      setMessage(error instanceof ApiError ? error.message : "No se pudo eliminar la canción.");
+    }
+  }
+
   function onDrop(event: DragEvent<HTMLLabelElement>) {
     event.preventDefault();
     setDragging(false);
@@ -171,7 +187,7 @@ export function GuidesPage() {
           ) : (
             <ul className="guide-list" style={{ marginTop: "0.75rem" }}>
               {guides.map((guide) => (
-                <li key={guide.id}>
+                <li key={guide.id} className="guide-entry">
                   <Link to={`/canciones/${guide.id}`} className="guide-card">
                     <span className="guide-card-title">{guide.title}</span>
                     <span className="guide-card-meta">
@@ -182,6 +198,14 @@ export function GuidesPage() {
                       {guide.status === "revisada" ? "Revisada" : "Borrador"}
                     </span>
                   </Link>
+                  <button
+                    type="button"
+                    className="button-ghost button-danger"
+                    disabled={busy}
+                    onClick={() => void remove(guide.id, guide.title)}
+                  >
+                    Eliminar
+                  </button>
                 </li>
               ))}
             </ul>

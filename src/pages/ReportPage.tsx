@@ -82,6 +82,25 @@ export function ReportPage() {
     }
   }, [report, sessionAttempt]);
 
+  async function removeAttempt(attemptId: string) {
+    if (!window.confirm("¿Eliminar este informe? El intento también se borra.")) {
+      return;
+    }
+    setState("loading");
+    try {
+      await new ApiClient(apiUrl, fetch, token).deleteAttempt(attemptId);
+      setHistory((current) => current.filter((attempt) => attempt.id !== attemptId));
+      if (chosen === attemptId) {
+        setChosen(null);
+        setReport(null);
+      }
+      setState("idle");
+    } catch (error) {
+      setState("error");
+      setMessage(error instanceof ApiError ? error.message : "No se pudo eliminar el informe.");
+    }
+  }
+
   async function askCoach() {
     setState("loading");
     try {
@@ -185,13 +204,22 @@ export function ReportPage() {
                         <span style={{ width: `${score}%` }} />
                       </span>
                     </span>
-                    <button
-                      type="button"
-                      className="button-ghost"
-                      onClick={() => void askReport(attempt.id)}
-                    >
-                      Ver informe
-                    </button>
+                    <span className="attempt-actions">
+                      <button
+                        type="button"
+                        className="button-ghost"
+                        onClick={() => void askReport(attempt.id)}
+                      >
+                        Ver informe
+                      </button>
+                      <button
+                        type="button"
+                        className="button-ghost button-danger"
+                        onClick={() => void removeAttempt(attempt.id)}
+                      >
+                        Eliminar
+                      </button>
+                    </span>
                   </li>
                 );
               })}
@@ -213,12 +241,16 @@ export function ReportPage() {
       <div ref={reportPanel}>
         <ReportPanel report={shown} />
       </div>
-      {history.length > 1 ? (
+      {history.length > 0 ? (
         <section className="panel">
           <h2>
             Tu <Term id="precision">precisión</Term> en el tiempo
           </h2>
-          <ProgressChart points={history} />
+          <ProgressChart
+            points={history}
+            activeId={chosen}
+            onSelect={(attemptId) => void askReport(attemptId)}
+          />
         </section>
       ) : null}
       <Achievements />

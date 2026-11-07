@@ -156,6 +156,13 @@ export async function mockApi(page: Page): Promise<ApiState> {
         201,
       );
     }
+    if (/^\/attempts\/[\w-]+$/.test(path) && method === "DELETE") {
+      return route.fulfill({
+        status: 204,
+        headers: { "access-control-allow-origin": "*" },
+        body: "",
+      });
+    }
     if (path === "/attempts/a1/report" && method === "POST") {
       return json(route, {
         id: "r1",
@@ -200,6 +207,14 @@ export async function mockApi(page: Page): Promise<ApiState> {
       const found = state.guides.find((guide) => guide.id === guideMatch[1]);
       if (!found) {
         return json(route, { code: "not_found", message: "La guía no existe." }, 404);
+      }
+      if (method === "DELETE") {
+        state.guides = state.guides.filter((guide) => guide.id !== guideMatch[1]);
+        return route.fulfill({
+          status: 204,
+          headers: { "access-control-allow-origin": "*" },
+          body: "",
+        });
       }
       if (method === "PUT") {
         const body = request.postDataJSON() as { status: string; guide: Record<string, unknown> };

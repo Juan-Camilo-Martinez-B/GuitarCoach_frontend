@@ -38,6 +38,17 @@ test("subir una tablatura arma la guía de la guitarra con sus rasgueos", async 
   );
   await expect(page.getByRole("button", { name: "Escuchar", exact: true })).toBeVisible();
 
+  await expect(page.getByRole("button", { name: "Acorde solo" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  const chart = page.getByRole("list", { name: "Carta" });
+  await expect(chart.getByRole("button", { name: /^Em/ }).first()).toBeVisible();
+  await page.getByRole("button", { name: "Acorde y rasgueo" }).click();
+  await expect(page.getByRole("group", { name: "Rasgueo abajo y arriba" })).toBeVisible();
+  await chart.getByRole("button", { name: /^C/ }).first().click();
+  await expect(chart.locator("li.is-now")).toContainText("C");
+
   await page.getByRole("button", { name: "Partitura" }).click();
   // alphaTab dibuja solo lo que está en pantalla.
   await page.locator(".tab-viewport").scrollIntoViewIfNeeded();
@@ -56,6 +67,28 @@ test("el editor avisa cuando un acorde no existe y no guarda", async ({ page }) 
   await page.getByRole("button", { name: "Guardar como revisada" }).click();
   await expect(page.getByRole("alert")).toContainText('"H7" no es un acorde');
   expect(api.puts).toHaveLength(0);
+});
+
+test("borrar la canción quita la guía y su archivo", async ({ page }) => {
+  await mockApi(page);
+  await signedIn(page);
+  page.on("dialog", (dialog) => dialog.accept());
+  await page.goto("/canciones");
+  await page.locator('input[type="file"]').setInputFiles(TAB_PATH);
+  await expect(page).toHaveURL(/\/canciones\/g1$/);
+  await page.getByRole("button", { name: "Eliminar" }).click();
+  await expect(page).toHaveURL(/\/canciones$/);
+  await expect(page.getByRole("link", { name: /Rasgueo de prueba/ })).toHaveCount(0);
+});
+
+test("se puede quitar un informe de la lista", async ({ page }) => {
+  await mockApi(page);
+  await signedIn(page);
+  page.on("dialog", (dialog) => dialog.accept());
+  await page.goto("/informe");
+  await expect(page.getByRole("button", { name: "Ver informe" })).toBeVisible();
+  await page.getByRole("button", { name: "Eliminar" }).click();
+  await expect(page.getByText("Cambios abiertos")).toHaveCount(0);
 });
 
 test("sin sesión, Mis canciones pide entrar", async ({ page }) => {
