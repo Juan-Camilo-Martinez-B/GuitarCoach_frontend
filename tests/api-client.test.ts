@@ -38,6 +38,18 @@ describe("cliente de la API", () => {
     await expect(client.health()).resolves.toBe(true);
   });
 
+  it("no duplica la barra si la URL del API termina en una", async () => {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse(200, { access_token: "abc", token_type: "bearer" }),
+    );
+    const client = new ApiClient("https://guitar-coach-backend.vercel.app/", fetchImpl);
+    await client.login("ana@example.com", "secreto-largo");
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "https://guitar-coach-backend.vercel.app/auth/login",
+      expect.anything(),
+    );
+  });
+
   it("guarda el token que devuelve el inicio de sesión", async () => {
     const fetchImpl = vi.fn(async () =>
       jsonResponse(200, { access_token: "abc", token_type: "bearer" }),

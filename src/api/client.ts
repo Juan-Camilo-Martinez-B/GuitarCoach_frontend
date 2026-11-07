@@ -48,11 +48,15 @@ type FetchLike = typeof fetch;
 export class ApiClient {
   private readonly fetchImpl: FetchLike;
 
+  private readonly baseUrl: string;
+
   constructor(
-    private readonly baseUrl: string,
+    baseUrl: string,
     fetchImpl: FetchLike = fetch,
     private token: string | null = null,
   ) {
+    // La barra final deja //auth/login y el redireccionamiento pierde CORS.
+    this.baseUrl = baseUrl.replace(/\/+$/, "");
     this.fetchImpl = fetchImpl.bind(globalThis);
   }
 
