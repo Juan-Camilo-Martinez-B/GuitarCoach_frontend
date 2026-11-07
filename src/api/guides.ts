@@ -6,6 +6,7 @@ import type {
   StrumEvent,
 } from "../domain/guide";
 import { ensureGrid } from "../domain/guide";
+import { withNamedParts } from "../tab/songParts";
 
 /** La guía en el formato de la API: el tempo viaja como us_per_quarter. */
 export type WireGuide = Omit<SongGuide, "tempo" | "events"> & {
@@ -52,5 +53,13 @@ export function guideSummaryFromPayload(body: GuideSummaryPayload): GuideSummary
 }
 
 export function guideFromPayload(body: GuidePayload): GuideRecord {
-  return { ...guideSummaryFromPayload(body), guide: body.guide };
+  return { ...guideSummaryFromPayload(body), guide: withNamedParts(body.guide) };
+}
+
+/** La guía que arma el lector de tablatura usa el tempo como lo espera la API. */
+export function guideFromWire(guide: WireGuide): SongGuide {
+  return {
+    ...guide,
+    tempo: guide.tempo.map((point) => ({ pulse: point.pulse, usPerQuarter: point.us_per_quarter })),
+  };
 }

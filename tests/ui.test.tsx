@@ -41,7 +41,11 @@ describe("informe en pantalla", () => {
       "Fallo de red",
     );
     expect(renderToStaticMarkup(<StatusMessage state="loading" />)).toContain("Cargando");
-    expect(renderToStaticMarkup(<ProgressChart points={points} />)).toContain("polyline");
+    const chart = renderToStaticMarkup(<ProgressChart points={points} />);
+    expect(chart).toContain("Última");
+    expect(chart).toContain("80 %");
+    expect(chart).toContain("Patio");
+    expect(chart).not.toContain("NaN");
     expect(renderToStaticMarkup(<ProgressChart points={[]} />)).toContain("no hay intentos");
   });
 });

@@ -192,6 +192,10 @@ export class ApiClient {
     return stop;
   }
 
+  async deleteAttempt(attemptId: string): Promise<void> {
+    await this.request(`/attempts/${encodeURIComponent(attemptId)}`, { method: "DELETE" });
+  }
+
   async createReport(attemptId: string): Promise<ReportView> {
     const response = await this.request(`/attempts/${attemptId}/report`, { method: "POST" });
     const body = (await response.json()) as {
@@ -376,6 +380,10 @@ export class ApiClient {
   async guide(id: string): Promise<GuideRecord> {
     const response = await this.request(`/guides/${encodeURIComponent(id)}`);
     return guideFromPayload((await response.json()) as GuidePayload);
+  }
+
+  async deleteGuide(id: string): Promise<void> {
+    await this.request(`/guides/${encodeURIComponent(id)}`, { method: "DELETE" });
   }
 
   async updateGuide(id: string, guide: SongGuide, status: GuideStatus): Promise<GuideRecord> {

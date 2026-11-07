@@ -1,14 +1,20 @@
 import { model } from "@coderline/alphatab";
 import type { WireGuide } from "../api/guides";
 import { bestChord } from "../audio/dsp/chordTemplates";
-import { isChordSymbol } from "../domain/chart";
+import { readChordSymbol } from "../domain/chart";
 import type { StrumDirection } from "../domain/course";
 import type { GuideChord, GuideNote, GuideSection, StrumEvent } from "../domain/guide";
 import { lessonStrum, usForBpm } from "../domain/guide";
+import {
+  inferPartMarks,
+  isGenericPartName,
+  prettifySectionName,
+  sectionLabelFromText,
+  type PartMark,
+} from "./songParts";
 
 // alphaTab mide el tiempo en ticks: 960 por negra.
 const TICKS_PER_QUARTER = 960;
-const BARS_PER_PART = 8;
 // Los mismos límites que valida la API.
 const MAX_SECTIONS = 40;
 const MAX_CHORDS = 2000;
@@ -109,48 +115,150 @@ function melody(staff: model.Staff): GuideNote[] {
   return notes.slice(0, MAX_NOTES);
 }
 
-/** Los acordes que la tablatura escribe sobre los golpes, si los trae. */
+/** Los acordes que la tablatura escribe, en el diagrama o como texto («Lam», «F/A»). */
 function writtenChords(staff: model.Staff): Array<{ start: number; chord: string }> {
   const found: Array<{ start: number; chord: string }> = [];
   for (const bar of staff.bars) {
     for (const beat of bar.voices[0]?.beats ?? []) {
-      const name = beat.chordId ? staff.chords?.get(beat.chordId)?.name?.trim() : undefined;
-      if (name && isChordSymbol(name) && found.at(-1)?.chord !== name) {
-        found.push({ start: pulse(beat.absolutePlaybackStart), chord: name });
+      const diagram = beat.chordId ? staff.chords?.get(beat.chordId)?.name : undefined;
+      const symbol = diagram
+        ? readChordSymbol(diagram)
+        : beat.text
+          ? readChordSymbol(beat.text)
+          : null;
+      if (symbol && found.at(-1)?.chord !== symbol) {
+        found.push({ start: pulse(beat.absolutePlaybackStart), chord: symbol });
       }
     }
   }
   return found;
 }
 
+function addPitch(chroma: Float32Array, midi: number, weight: number): number {
+  const pitch = ((midi % 12) + 12) % 12;
+  chroma[pitch] += weight;
+  return midi;
+}
+
+function namedChord(chroma: Float32Array, lowest: number): string | null {
+  if (lowest === Infinity || Math.max(...chroma) <= 0) {
+    return null;
+  }
+  const frame = new Float32Array(chroma);
+  // El bajo pesa más: suele ser la fundamental.
+  frame[((lowest % 12) + 12) % 12] += Math.max(...frame) * 0.5;
+  return bestChord(frame, TRIADS);
+}
+
 /**
- * Sin cifrado escrito: el acorde de cada compás sale de sus notas. Se nombra la forma que
- * pisa la mano (sin la cejilla), como lo escribe un cancionero: Am con cejilla 1, no Bbm.
+ * Sin cifrado, o cuando el cifrado se interrumpe: el acorde sale de las notas.
+ * Un rasgueo (dos cuerdas o más) puede cambiar de acorde a mitad del compás.
+ * Un arpegio se lee entero, para no bautizar cada nota suelta.
  */
 function estimatedChords(staff: model.Staff): Array<{ start: number; chord: string }> {
   const found: Array<{ start: number; chord: string }> = [];
   const capo = Math.max(0, staff.capo);
+  const push = (start: number, chord: string | null) => {
+    if (chord && found.at(-1)?.chord !== chord) {
+      found.push({ start, chord });
+    }
+  };
   for (const bar of staff.bars) {
-    const chroma = new Float32Array(12);
-    let lowest = Infinity;
+    const pending = new Float32Array(12);
+    let pendingLowest = Infinity;
+    let pendingStart = pulse(bar.masterBar.start);
+    const flush = () => {
+      if (pendingLowest === Infinity) {
+        return;
+      }
+      push(pendingStart, namedChord(pending, pendingLowest));
+      pending.fill(0);
+      pendingLowest = Infinity;
+    };
     for (const beat of bar.voices.flatMap((voice) => voice.beats)) {
-      for (const note of beat.isRest ? [] : beat.notes) {
-        if (note.isDead) {
-          continue;
+      if (beat.isRest || beat.graceType !== model.GraceType.None) {
+        continue;
+      }
+      const sounded = beat.notes.filter((note) => !note.isDead);
+      if (sounded.length === 0) {
+        continue;
+      }
+      if (sounded.length >= STRUM_MIN_NOTES) {
+        flush();
+        const chroma = new Float32Array(12);
+        let lowest = Infinity;
+        for (const note of sounded) {
+          lowest = Math.min(lowest, addPitch(chroma, note.realValue - capo, beat.playbackDuration));
         }
-        const shape = note.realValue - capo;
-        chroma[((shape % 12) + 12) % 12] += beat.playbackDuration;
-        lowest = Math.min(lowest, shape);
+        push(pulse(beat.absolutePlaybackStart), namedChord(chroma, lowest));
+        continue;
+      }
+      if (pendingLowest === Infinity) {
+        pendingStart = pulse(beat.absolutePlaybackStart);
+      }
+      for (const note of sounded) {
+        pendingLowest = Math.min(
+          pendingLowest,
+          addPitch(pending, note.realValue - capo, beat.playbackDuration),
+        );
       }
     }
-    if (lowest === Infinity) {
-      continue;
+    flush();
+  }
+  return found;
+}
+
+/**
+ * El cifrado escrito manda mientras las notas siguen en esa armonía. Si el archivo
+ * deja de escribir acordes y las notas cambian, se sigue lo que suena: si no, el
+ * último cifrado se queda con todo el rasgueo que viene después.
+ */
+function mergeChordMarks(
+  written: Array<{ start: number; chord: string }>,
+  estimated: Array<{ start: number; chord: string }>,
+): Array<{ start: number; chord: string }> {
+  if (written.length === 0) {
+    return estimated;
+  }
+  if (estimated.length === 0) {
+    return written;
+  }
+  const starts = [...new Set([...written, ...estimated].map((mark) => mark.start))].sort(
+    (left, right) => left - right,
+  );
+  const sounding = (marks: Array<{ start: number; chord: string }>, pulse: number) => {
+    let chord: string | null = null;
+    for (const mark of marks) {
+      if (mark.start <= pulse + 1e-6) {
+        chord = mark.chord;
+      } else {
+        break;
+      }
     }
-    // El bajo pesa más: suele ser la fundamental.
-    chroma[((lowest % 12) + 12) % 12] += Math.max(...chroma) * 0.5;
-    const chord = bestChord(chroma, TRIADS);
+    return chord;
+  };
+  const found: Array<{ start: number; chord: string }> = [];
+  let held: string | null = null;
+  let heldHarmony: string | null = null;
+  for (const start of starts) {
+    const fresh = written.find((mark) => Math.abs(mark.start - start) < 1e-3);
+    const harmony = sounding(estimated, start);
+    let chord: string | null;
+    if (fresh) {
+      chord = fresh.chord;
+      held = chord;
+      heldHarmony = harmony;
+    } else if (held && (harmony === null || harmony === heldHarmony)) {
+      chord = held;
+    } else if (harmony) {
+      chord = harmony;
+      held = null;
+      heldHarmony = null;
+    } else {
+      chord = held;
+    }
     if (chord && found.at(-1)?.chord !== chord) {
-      found.push({ start: pulse(bar.masterBar.start), chord });
+      found.push({ start, chord });
     }
   }
   return found;
@@ -192,28 +300,61 @@ function sectionStrum(
   return lessonStrum(beatsPerBar);
 }
 
+function markerMarks(score: model.Score): PartMark[] {
+  return score.masterBars
+    .filter((bar) => bar.section !== null)
+    .map((bar) => ({
+      start: pulse(bar.start),
+      name: prettifySectionName(bar.section?.text || bar.section?.marker || ""),
+    }))
+    .filter((mark) => mark.name.length > 0 && !isGenericPartName(mark.name));
+}
+
+/** «Verso» o «Coro» escrito sobre el primer golpe de un compás, no en la letra. */
+function textMarks(staff: model.Staff): PartMark[] {
+  const marks: PartMark[] = [];
+  for (const bar of staff.bars) {
+    for (const beat of bar.voices[0]?.beats ?? []) {
+      const name = beat.text ? sectionLabelFromText(beat.text) : null;
+      if (!name || marks.at(-1)?.name === name) {
+        continue;
+      }
+      marks.push({ start: pulse(bar.masterBar.start), name });
+      break;
+    }
+  }
+  return marks;
+}
+
 function sections(
   score: model.Score,
+  staff: model.Staff,
+  chords: GuideChord[],
   total: number,
   beatsPerBar: number,
   events: StrumEvent[],
 ): GuideSection[] {
-  const marks = score.masterBars
-    .filter((bar) => bar.section !== null)
-    .map((bar) => ({
-      start: pulse(bar.start),
-      name: (bar.section?.text || bar.section?.marker || "Sección").trim().slice(0, 120),
-    }));
-  if (marks.length === 0 || marks[0].start > 0) {
-    marks.unshift({ start: 0, name: marks.length === 0 ? "Parte 1" : "Intro" });
+  const marked = markerMarks(score);
+  const marks = marked.length > 0 ? marked : textMarks(staff);
+  if (marks.length === 0) {
+    marks.push(...inferPartMarks(chords, total, beatsPerBar));
   }
-  if (marks.length === 1 && total > BARS_PER_PART * beatsPerBar) {
-    // Sin marcas de sección: partes de ocho compases para practicar en bucle.
-    const part = BARS_PER_PART * beatsPerBar;
-    marks.length = 0;
-    for (let start = 0; start < total; start += part) {
-      marks.push({ start, name: `Parte ${marks.length + 1}` });
+  if (marks.length === 0 || marks[0].start > 0.01) {
+    marks.unshift({ start: 0, name: marks.length === 0 ? "Canción" : "Intro" });
+  }
+  const counts = new Map<string, number>();
+  for (const mark of marks) {
+    counts.set(mark.name, (counts.get(mark.name) ?? 0) + 1);
+  }
+  const seen = new Map<string, number>();
+  for (const mark of marks) {
+    const totalForName = counts.get(mark.name) ?? 1;
+    if (totalForName === 1 || /\d$/.test(mark.name)) {
+      continue;
     }
+    const number = (seen.get(mark.name) ?? 0) + 1;
+    seen.set(mark.name, number);
+    mark.name = `${mark.name} ${number}`;
   }
   return marks
     .slice(0, MAX_SECTIONS)
@@ -360,8 +501,7 @@ export function scoreToGuide(
   }
   const beatsPerBar = Math.min(12, Math.max(1, round(barBeats(first))));
   const total = pulse(last.start + last.calculateDuration());
-  const written = writtenChords(staff);
-  const marks = written.length > 0 ? written : estimatedChords(staff);
+  const marks = mergeChordMarks(writtenChords(staff), estimatedChords(staff));
   if (marks.length === 0) {
     throw new Error("La pista elegida no tiene notas.");
   }
@@ -380,7 +520,7 @@ export function scoreToGuide(
     beats_per_bar: beatsPerBar,
     // Los acordes son formas sobre la cejilla; la melodía ya está en la altura que suena.
     capo: Math.min(12, Math.max(0, staff.capo)),
-    sections: sections(score, total, beatsPerBar, events),
+    sections: sections(score, staff, chords, total, beatsPerBar, events),
     chords,
     melody: melody(staff),
     tempo: tempoMap(score),

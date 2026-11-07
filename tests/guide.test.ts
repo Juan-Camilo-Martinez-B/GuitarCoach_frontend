@@ -7,6 +7,8 @@ import {
   barsToText,
   bpmFromUs,
   ensureGrid,
+  chordChangeLabels,
+  eventsInBar,
   firstPlayedSection,
   guideHits,
   mergeChordBack,
@@ -386,5 +388,30 @@ describe("guía de canción", () => {
       "abajo",
       "arriba",
     ]);
+  });
+
+  it("marca el golpe en el que cambia el acorde y deja quieto el que sigue igual", () => {
+    const hit = (pulse: number) => ({
+      pulse,
+      span: 1,
+      direction: "abajo" as const,
+      contact: "golpe" as const,
+      velocity: 0.8,
+      origin: "escrito" as const,
+    });
+    const guide: SongGuide = {
+      ...sample(),
+      beats_per_bar: 4,
+      sections: [
+        { name: "Todo", start: 0, beats: 8, strum: { directions: ["abajo"], beats: [1] } },
+      ],
+      chords: [
+        { start: 0, beats: 4, chord: "Am" },
+        { start: 4, beats: 4, chord: "G" },
+      ],
+      events: [0, 1, 2, 3, 4, 5].map(hit),
+    };
+    expect(chordChangeLabels(guide, eventsInBar(guide, 0))).toEqual(["Am", null, null, null]);
+    expect(chordChangeLabels(guide, eventsInBar(guide, 4))).toEqual(["G", null]);
   });
 });

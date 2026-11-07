@@ -887,6 +887,50 @@ export function strumBar(guide: SongGuide, sectionIndex: number): StrumEvent[] {
   return [];
 }
 
+/** Los golpes del compás que contiene este pulso, aires incluidos. */
+export function eventsInBar(guide: SongGuide, pulse: number): StrumEvent[] {
+  const grid = ensureGrid(guide);
+  const section = grid.sections[sectionAt(grid, pulse)];
+  if (!section || !grid.events) {
+    return [];
+  }
+  const into = Math.max(0, pulse - section.start);
+  const barStart =
+    section.start + Math.floor(into / grid.beats_per_bar + EPSILON) * grid.beats_per_bar;
+  const barEnd = Math.min(section.start + section.beats, barStart + grid.beats_per_bar);
+  return grid.events.filter(
+    (event) => event.pulse >= barStart - EPSILON && event.pulse < barEnd - EPSILON,
+  );
+}
+
+/**
+ * El nombre del acorde solo en el golpe donde cambia. Un aire no cambia el acorde
+ * y un golpe que sigue con el mismo acorde tampoco.
+ */
+export function chordChangeLabels(guide: SongGuide, events: StrumEvent[]): Array<string | null> {
+  let previous = "";
+  const first = events[0];
+  if (first) {
+    const before = chordAt(guide, first.pulse - 0.001);
+    previous = before >= 0 ? guide.chords[before].chord : "";
+  }
+  return events.map((event) => {
+    if (event.contact === "aire") {
+      return null;
+    }
+    const index = chordAt(guide, event.pulse);
+    const symbol = index >= 0 ? guide.chords[index].chord : "";
+    if (!symbol || symbol === previous) {
+      if (symbol) {
+        previous = symbol;
+      }
+      return null;
+    }
+    previous = symbol;
+    return symbol;
+  });
+}
+
 /** La primera sección donde suena la guitarra: una intro de otro instrumento no enseña nada. */
 export function firstPlayedSection(guide: SongGuide): number {
   const found = guide.sections.findIndex((_, index) => strumBar(guide, index).length > 0);
