@@ -1,6 +1,11 @@
 # GuitarCoach Frontend
 
-Aplicación web del tutor de guitarra. El audio del micrófono se procesa en el navegador y no se envía al servidor.
+Aplicación web del tutor de guitarra. El audio del micrófono se procesa en el navegador y no se envía al servidor. La API está en el repositorio `guitarcoach-backend` y el esquema en `guitarcoach-database`.
+
+| Documento | Qué explica |
+| --- | --- |
+| [docs/arquitectura.md](docs/arquitectura.md) | Capas del cliente, práctica, sesión, tablatura y el contrato con la API. |
+| [CHANGELOG.md](CHANGELOG.md) | Versión 1.0.0. |
 
 ## Cómo ejecutarlo
 
@@ -160,14 +165,12 @@ El plugin `@coderline/alphatab-vite` (en `vite.config.ts`) copia las fuentes de 
 
 ## Despliegue
 
-La imagen escucha en el puerto 8080 y nginx envía COOP y COEP. El despliegue a Cloud Run es el workflow manual `desplegar`. La versión 1.0.0 está en `CHANGELOG.md`.
+El despliegue actual es un proyecto de Vercel distinto del API. El preset es Vite: el comando de build es `npm run build` y la salida es `dist`. `vercel.json` reescribe las rutas de React hacia `index.html` y envía COOP y COEP, igual que nginx.
 
-## Vercel
+En el panel, **antes** de construir, como variable normal (Vite la escribe en el JavaScript; un secreto no llega al bundle):
 
-Este repositorio es un proyecto de Vercel aparte del API. El preset es Vite. `vercel.json` reescribe las rutas de React y envía COOP y COEP, igual que nginx.
+`VITE_API_URL` = `https://guitar-coach-backend.vercel.app`
 
-En el panel, antes de construir:
+Sin barra final. El cliente la quita si alguien la deja, pero cambiar el valor después exige volver a desplegar. El API tiene que incluir `https://guitar-coach-frontend.vercel.app` en `CORS_ORIGINS`.
 
-`VITE_API_URL` = la URL del proyecto del API, sin barra final. Vite la deja escrita en el JavaScript del build; cambiarla después exige volver a desplegar.
-
-El API tiene que incluir esa misma URL del frontend en `CORS_ORIGINS`.
+La imagen de contenedor sigue disponible para Cloud Run: escucha en el puerto 8080 y el workflow manual `desplegar` la publica. La versión 1.0.0 está en `CHANGELOG.md`.
