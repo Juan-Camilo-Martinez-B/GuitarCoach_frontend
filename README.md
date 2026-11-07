@@ -161,3 +161,13 @@ El plugin `@coderline/alphatab-vite` (en `vite.config.ts`) copia las fuentes de 
 ## Despliegue
 
 La imagen escucha en el puerto 8080 y nginx envía COOP y COEP. El despliegue a Cloud Run es el workflow manual `desplegar`. La versión 1.0.0 está en `CHANGELOG.md`.
+
+## Vercel
+
+Este repositorio es un proyecto de Vercel aparte del API. El preset es Vite. `vercel.json` reescribe las rutas de React y envía COOP y COEP, igual que nginx.
+
+En el panel, antes de construir:
+
+`VITE_API_URL` = la URL del proyecto del API, sin barra final. Vite la deja escrita en el JavaScript del build; cambiarla después exige volver a desplegar.
+
+El API tiene que incluir esa misma URL del frontend en `CORS_ORIGINS`.
