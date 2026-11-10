@@ -90,17 +90,17 @@ Si el WebSocket de un trabajo de importación falla, `watchJob` consulta `GET /j
 
 ## Rutas
 
-| Ruta | Pantalla | Sección |
-| --- | --- | --- |
-| `/` | Inicio, ruta guiada | Inicio |
-| `/aprendizaje` | Curso | Aprender |
-| `/glosario` | Diccionario | Aprender |
-| `/afinador` | Afinador | Practicar |
-| `/biblioteca` | Catálogo | Practicar |
-| `/practica` | Práctica con micrófono | Practicar |
-| `/canciones` | Guías propias | Mi progreso |
-| `/canciones/:guideId` | Una guía | Mi progreso |
-| `/informe` | Informe y logros | Mi progreso |
-| `/entrar` | Iniciar sesión o crear cuenta | — |
+| Ruta                  | Pantalla                      | Sección     |
+| --------------------- | ----------------------------- | ----------- |
+| `/`                   | Inicio, ruta guiada           | Inicio      |
+| `/aprendizaje`        | Curso                         | Aprender    |
+| `/glosario`           | Diccionario                   | Aprender    |
+| `/afinador`           | Afinador                      | Practicar   |
+| `/biblioteca`         | Catálogo                      | Practicar   |
+| `/practica`           | Práctica con micrófono        | Practicar   |
+| `/canciones`          | Guías propias                 | Mi progreso |
+| `/canciones/:guideId` | Una guía                      | Mi progreso |
+| `/informe`            | Informe y logros              | Mi progreso |
+| `/entrar`             | Iniciar sesión o crear cuenta | —           |
 
 `/registro` redirige a `/entrar?alta=1`. La definición de las cuatro secciones está en `src/layout/navigation.ts`.

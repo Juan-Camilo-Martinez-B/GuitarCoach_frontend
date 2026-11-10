@@ -467,6 +467,7 @@ export function songFromGuide(record: GuideRecord): Song | null {
     songKey: guide.song_key ?? "",
     bpm: guide.bpm,
     beatsPerBar: guide.beats_per_bar,
+    capo: guide.capo,
     chords: guide.chords.map((chord) => ({
       bar: Math.floor(chord.start / guide.beats_per_bar + EPSILON) + 1,
       beat: Math.round((chord.start % guide.beats_per_bar) * 1000) / 1000 + 1,

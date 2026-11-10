@@ -19,14 +19,29 @@ const WINDOW_WEIGHT: Record<number, number> = { 2048: 1, 4096: 2, 8192: 3 };
 const MAX_EARLY_SECONDS = 0.12;
 const EARLY_SHARE = 0.4;
 
+/**
+ * Lleva el croma que suena a la altura de la forma que pisa la mano. Con cejilla en el traste
+ * N todo suena N semitonos arriba: la forma de La menor con cejilla 1 suena como Si bemol menor.
+ */
+export function shapeChroma(chroma: Float32Array, capo: number): Float32Array {
+  const shift = ((Math.round(capo) % 12) + 12) % 12;
+  if (shift === 0) {
+    return chroma;
+  }
+  return chroma.map((_, pitch) => chroma[(pitch + shift) % 12]);
+}
+
 /** Junta lo oído de varias ventanas y da un solo veredicto, más estable que el de cada una. */
 export class ChordEvidence {
   private readonly scores = new Map<string, number>();
   private weight = 0;
 
+  /** capo: traste de la cejilla; los acordes esperados son las formas sobre ella. */
+  constructor(private readonly capo = 0) {}
+
   add(chroma: Float32Array, windowSize: number, candidates: string[]): void {
     const weight = WINDOW_WEIGHT[windowSize] ?? 1;
-    for (const [candidate, score] of scoreCandidates(chroma, candidates)) {
+    for (const [candidate, score] of scoreCandidates(shapeChroma(chroma, this.capo), candidates)) {
       this.scores.set(candidate, (this.scores.get(candidate) ?? 0) + score * weight);
     }
     this.weight += weight;
@@ -58,8 +73,9 @@ export class ChordScoreFollower {
   constructor(
     readonly slots: ChordSlot[],
     private readonly candidates: (symbol: string) => string[],
+    capo = 0,
   ) {
-    this.evidence = slots.map(() => new ChordEvidence());
+    this.evidence = slots.map(() => new ChordEvidence(capo));
     this.onsets = slots.map(() => null);
   }
 

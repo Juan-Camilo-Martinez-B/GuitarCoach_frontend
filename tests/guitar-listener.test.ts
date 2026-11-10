@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { chordCandidates } from "../src/audio/dsp/chordRecognizer";
 import { GuitarListener, type ListenerEvent } from "../src/audio/listening/guitarListener";
-import { ChordScoreFollower, MelodyFollower } from "../src/audio/listening/scoreFollower";
+import {
+  ChordScoreFollower,
+  MelodyFollower,
+  shapeChroma,
+} from "../src/audio/listening/scoreFollower";
 
 const RATE = 44100;
 const SHAPES: Record<string, number[]> = {
@@ -101,6 +105,41 @@ describe("oyente de guitarra", () => {
     });
   });
 
+  it("con cejilla, espera las formas escritas y no los acordes que suenan", () => {
+    const capo = 2;
+    const progression = ["G", "D", "Em", "C"];
+    const length = 0.6;
+    const samples = new Float32Array(RATE * 3);
+    progression.forEach((symbol, index) => {
+      SHAPES[symbol].forEach((midi) =>
+        pluck(samples, midi + capo, 0.3 + index * length, length * 0.9),
+      );
+    });
+    const slots = progression.map((symbol, index) => ({
+      symbol,
+      at: 0.3 + index * length,
+      end: 0.3 + (index + 1) * length,
+    }));
+    const withCapo = new ChordScoreFollower(
+      slots,
+      (symbol) => chordCandidates(symbol, progression),
+      capo,
+    );
+    const withoutCapo = new ChordScoreFollower(slots, (symbol) =>
+      chordCandidates(symbol, progression),
+    );
+    for (const event of listen(samples)) {
+      if (event.type === "chord") {
+        withCapo.addChroma(event.onsetAt, event.at, event.windowSize, event.chroma);
+        withoutCapo.addChroma(event.onsetAt, event.at, event.windowSize, event.chroma);
+      }
+    }
+    progression.forEach((symbol, index) => {
+      expect(withCapo.result(index).judgement.ok, `${symbol} con cejilla ${capo}`).toBe(true);
+      expect(withoutCapo.result(index).judgement.ok).toBe(false);
+    });
+  });
+
   it("nombra las notas de una melodía rápida", () => {
     const melody = [55, 57, 59, 60, 62, 64, 66, 67];
     const step = 60 / 200 / 2;
@@ -130,6 +169,17 @@ describe("oyente de guitarra", () => {
     );
     expect(notes[0]).toBe(55);
     expect(notes).toContain(57);
+  });
+});
+
+describe("croma con cejilla", () => {
+  it("baja lo que suena tantos semitonos como el traste de la cejilla", () => {
+    const sounding = new Float32Array(12);
+    // Si bemol menor (Bb, Db, F): lo que suena la forma de La menor con cejilla 1.
+    [10, 1, 5].forEach((pitch) => (sounding[pitch] = 1));
+    const shape = shapeChroma(sounding, 1);
+    expect([...shape.keys()].filter((pitch) => shape[pitch] > 0)).toEqual([0, 4, 9]);
+    expect(shapeChroma(sounding, 0)).toBe(sounding);
   });
 });
 

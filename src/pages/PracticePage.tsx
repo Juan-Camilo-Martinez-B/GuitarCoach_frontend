@@ -117,6 +117,9 @@ export function PracticePage() {
   const symbolRef = useRef("");
   const drillRef = useRef<Drill>("acorde");
   drillRef.current = drill;
+  // Con cejilla, la carta trae las formas y el micrófono oye todo más agudo.
+  const capoRef = useRef(0);
+  capoRef.current = song?.capo ?? 0;
 
   const steps = song ? practiceSteps(song, study) : [];
   const beatsPerBar = song?.beatsPerBar ?? 4;
@@ -212,7 +215,7 @@ export function PracticePage() {
   /** Escucha libre de un acorde: cada rasgueo empieza un veredicto nuevo. */
   function onFreeChordEvent(event: ListenerEvent) {
     if (event.type === "onset") {
-      evidenceRef.current = new ChordEvidence();
+      evidenceRef.current = new ChordEvidence(capoRef.current);
       return;
     }
     if (event.type !== "chord") {
@@ -244,7 +247,7 @@ export function PracticePage() {
       return;
     }
     record("tocar");
-    evidenceRef.current = new ChordEvidence();
+    evidenceRef.current = new ChordEvidence(capoRef.current);
     setListening(true);
     setVerdict(`Escuchando. Toca ${spanishName(symbolRef.current)}.`);
     setVerdictKind("espera");
@@ -365,7 +368,11 @@ export function PracticePage() {
       session.click(firstBeat + beat * secondsPerBeat, beat % countIn === 0);
     }
     const symbols = symbolsRef.current;
-    const follower = new ChordScoreFollower(slots, (symbol) => chordCandidates(symbol, symbols));
+    const follower = new ChordScoreFollower(
+      slots,
+      (symbol) => chordCandidates(symbol, symbols),
+      capoRef.current,
+    );
     followerRef.current = follower;
     latencyMsRef.current = Math.round(session.latency * 1000);
     attemptOpenRef.current = true;
@@ -439,7 +446,7 @@ export function PracticePage() {
 
   function pick(index: number) {
     setPicked(index);
-    evidenceRef.current = new ChordEvidence();
+    evidenceRef.current = new ChordEvidence(capoRef.current);
   }
 
   if (!song) {
@@ -466,6 +473,8 @@ export function PracticePage() {
   const step = steps[shown] ?? steps[0];
   // Las funciones declaradas no heredan el descarte de song nulo de más arriba.
   const bpm = song.bpm;
+  // El audio de referencia suena como la guitarra del alumno: con la cejilla puesta.
+  const capo = song.capo ?? 0;
   const playing = phase === "playing";
 
   function hearChart() {
@@ -477,7 +486,7 @@ export function PracticePage() {
     const lengths = steps.map((_, position) => beatsOf(steps, position, beatsPerBar));
     void Promise.all(steps.map((item) => shapeFor(item.symbol)))
       .then((found) =>
-        ticket === listenTicket.current ? playSlots(found, lengths, bpm, pattern) : [],
+        ticket === listenTicket.current ? playSlots(found, lengths, bpm, pattern, capo) : [],
       )
       .then((hits) => {
         if (ticket !== listenTicket.current || hits.length === 0) {
@@ -666,7 +675,7 @@ export function PracticePage() {
                   setArrow(index);
                   void shapeFor(step.symbol).then((found) => {
                     if (found) {
-                      playStrum(found, direction);
+                      playStrum(found, direction, capo);
                     }
                   });
                 }}
@@ -689,7 +698,7 @@ export function PracticePage() {
                 onClick={() => {
                   void shapeFor(step.symbol).then((found) => {
                     if (found) {
-                      playChord(found);
+                      playChord(found, capo);
                     }
                   });
                 }}
@@ -709,7 +718,7 @@ export function PracticePage() {
                     void shapeFor(step.symbol)
                       .then((found) =>
                         found && ticket === listenTicket.current
-                          ? playPattern(found, song.bpm, pattern)
+                          ? playPattern(found, song.bpm, pattern, capo)
                           : [],
                       )
                       .then((hits) => {

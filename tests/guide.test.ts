@@ -238,9 +238,10 @@ describe("guía de canción", () => {
       sourceKind: "pegado",
       status: "borrador",
       updatedAt: "",
-      guide: sample(),
+      guide: { ...sample(), capo: 3 },
     });
     expect(song?.id).toBe(7);
+    expect(song?.capo).toBe(3);
     expect(song?.chords.slice(2)).toEqual([
       { bar: 3, beat: 1, chord: "Am" },
       { bar: 3, beat: 3, chord: "C" },
