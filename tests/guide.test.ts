@@ -248,6 +248,38 @@ describe("guía de canción", () => {
     ]);
   });
 
+  it("para practicar una sección solo deja sus acordes, con el número de compás de la canción", () => {
+    const guide: SongGuide = {
+      ...sample(),
+      chords: [
+        { start: 0, beats: 4, chord: "G" },
+        // Viene sonando desde la intro y sigue en el coro: entra desde donde empieza el coro.
+        { start: 4, beats: 6, chord: "D" },
+        { start: 10, beats: 2, chord: "C" },
+      ],
+    };
+    const record = {
+      id: "g1",
+      songId: 7,
+      title: "Prueba",
+      artist: "Ana",
+      bpm: 90,
+      sourceKind: "pegado" as const,
+      status: "borrador" as const,
+      updatedAt: "",
+      guide,
+    };
+    const chorus = songFromGuide(record, 1);
+    expect(chorus?.title).toBe("Prueba · Coro");
+    expect(chorus?.chords).toEqual([
+      { bar: 3, beat: 1, chord: "D" },
+      { bar: 3, beat: 3, chord: "C" },
+    ]);
+    expect(songFromGuide(record, 0)?.chords.map((chord) => chord.chord)).toEqual(["G", "D"]);
+    expect(songFromGuide(record)?.chords).toHaveLength(3);
+    expect(songFromGuide(record, 5)).toBeNull();
+  });
+
   it("prepara una lección copiable cuando la carta no trae rasgueo ni melodía", () => {
     const flat: SongGuide = {
       ...sample(),

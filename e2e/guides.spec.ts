@@ -56,6 +56,54 @@ test("subir una tablatura arma la guía de la guitarra con sus rasgueos", async 
   await expect(page.getByRole("button", { name: "Escuchar", exact: true })).toHaveCount(0);
 });
 
+test("practicar con el micrófono una sección escucha solo esa parte", async ({ page }) => {
+  const api = await mockApi(page);
+  api.guides = [
+    {
+      id: "g1",
+      song_id: 9,
+      title: "Dos partes",
+      artist: "Ana",
+      bpm: 90,
+      source_kind: "tablatura",
+      status: "revisada",
+      updated_at: "2026-10-30T10:00:00Z",
+      guide: {
+        version: 1,
+        title: "Dos partes",
+        artist: "Ana",
+        song_key: "G",
+        bpm: 90,
+        beats_per_bar: 4,
+        capo: 0,
+        sections: [
+          { name: "Intro", start: 0, beats: 8, strum: { directions: ["abajo"], beats: [4] } },
+          { name: "Coro", start: 8, beats: 8, strum: { directions: ["abajo"], beats: [4] } },
+        ],
+        chords: [
+          { start: 0, beats: 4, chord: "G" },
+          { start: 4, beats: 4, chord: "D" },
+          { start: 8, beats: 4, chord: "Am" },
+          { start: 12, beats: 4, chord: "C" },
+        ],
+        melody: [],
+      },
+    },
+  ];
+  await signedIn(page);
+  await page.goto("/canciones/g1");
+
+  await page.getByLabel("Qué parte tocar").selectOption({ label: "Coro" });
+  await page.getByRole("button", { name: "Practicar con el micrófono" }).click();
+
+  await expect(page).toHaveURL(/\/practica$/);
+  await expect(page.getByRole("heading", { name: "Dos partes · Coro" })).toBeVisible();
+  const chart = page.getByRole("list", { name: "Carta" });
+  await expect(chart.getByRole("listitem")).toHaveCount(2);
+  await expect(chart.getByRole("listitem").nth(0)).toContainText("Am");
+  await expect(chart.getByRole("listitem").nth(1)).toContainText("C");
+});
+
 test("el editor avisa cuando un acorde no existe y no guarda", async ({ page }) => {
   const api = await mockApi(page);
   await signedIn(page);
