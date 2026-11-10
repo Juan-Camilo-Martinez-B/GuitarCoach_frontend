@@ -2,10 +2,10 @@
 
 Aplicación web del tutor de guitarra. El audio del micrófono se procesa en el navegador y no se envía al servidor. La API está en el repositorio `guitarcoach-backend` y el esquema en `guitarcoach-database`.
 
-| Documento | Qué explica |
-| --- | --- |
+| Documento                                    | Qué explica                                                              |
+| -------------------------------------------- | ------------------------------------------------------------------------ |
 | [docs/arquitectura.md](docs/arquitectura.md) | Capas del cliente, práctica, sesión, tablatura y el contrato con la API. |
-| [CHANGELOG.md](CHANGELOG.md) | Versión 1.0.0. |
+| [CHANGELOG.md](CHANGELOG.md)                 | Versión 1.0.0.                                                           |
 
 ## Cómo ejecutarlo
 
