@@ -65,6 +65,8 @@ const SLOT_GRACE_SECONDS = 0.25;
 const FINISH_GRACE_SECONDS = 0.5;
 const MISSED_DELTA_MS = 1000;
 const MAX_LATENCY_MS = 500;
+// Al escuchar un acorde suelto se juzga lo último que sonó, sin reiniciar en cada golpe.
+const FREE_SPAN_SECONDS = 1.5;
 
 function beatPosition(step: StudyStep, beatsPerBar: number): number {
   return (step.bar - 1) * beatsPerBar + (step.beat - 1);
@@ -212,12 +214,15 @@ export function PracticePage() {
     return session;
   }
 
-  /** Escucha libre de un acorde: cada rasgueo empieza un veredicto nuevo. */
+  function freshEvidence(): ChordEvidence {
+    return new ChordEvidence(capoRef.current, FREE_SPAN_SECONDS);
+  }
+
+  /**
+   * Escucha libre de un acorde. Se juzga lo que sonó en el último segundo y medio: el primer
+   * instante de cada golpe es ruido de la púa y no debe cambiar el veredicto entre rasgueos.
+   */
   function onFreeChordEvent(event: ListenerEvent) {
-    if (event.type === "onset") {
-      evidenceRef.current = new ChordEvidence(capoRef.current);
-      return;
-    }
     if (event.type !== "chord") {
       return;
     }
@@ -226,9 +231,9 @@ export function PracticePage() {
       return;
     }
     const evidence = evidenceRef.current;
-    evidence.add(event.chroma, event.windowSize, chordCandidates(expected, symbolsRef.current));
+    evidence.add(event, chordCandidates(expected, symbolsRef.current));
     const judgement = evidence.judge(expected);
-    if (judgement.heard === null) {
+    if (!evidence.settled || judgement.heard === null) {
       return;
     }
     const result = judgementVerdict(judgement.heard, judgement.ok, expected);
@@ -247,7 +252,7 @@ export function PracticePage() {
       return;
     }
     record("tocar");
-    evidenceRef.current = new ChordEvidence(capoRef.current);
+    evidenceRef.current = freshEvidence();
     setListening(true);
     setVerdict(`Escuchando. Toca ${spanishName(symbolRef.current)}.`);
     setVerdictKind("espera");
@@ -341,7 +346,7 @@ export function PracticePage() {
       if (event.type === "onset") {
         followerRef.current?.addOnset(event.at);
       } else if (event.type === "chord") {
-        followerRef.current?.addChroma(event.onsetAt, event.at, event.windowSize, event.chroma);
+        followerRef.current?.addChroma(event);
       }
     };
     const session = await listenTo(stream, { chords: true, notes: false }, onEvent);
@@ -379,7 +384,6 @@ export function PracticePage() {
 
     let closed = 0;
     let lastIndex = -1;
-    let started = false;
     cursorRef.current = window.setInterval(() => {
       const time = session.now();
       if (time < origin) {
@@ -387,24 +391,33 @@ export function PracticePage() {
         setVerdict(`Empieza en ${left}…`);
         return;
       }
-      if (!started) {
-        started = true;
-        setVerdict("Toca cada acorde cuando se ilumine.");
-      }
       const index = follower.indexAt(time);
       if (index >= 0 && index !== lastIndex) {
         lastIndex = index;
         setActive(index);
         setPicked(index);
+        setVerdict(`Toca ${spanishName(slots[index].symbol)}.`);
+        setVerdictKind("espera");
       }
-      while (closed < slots.length && time > slots[closed].end + SLOT_GRACE_SECONDS) {
-        const result = follower.result(closed);
-        const position = closed;
-        const expected = slots[closed].symbol;
-        const said = judgementVerdict(result.judgement.heard, result.judgement.ok, expected);
-        setMarks((current) => ({ ...current, [position]: result.judgement.ok ? "bien" : "no" }));
+      // Veredicto en vivo del acorde que suena, desde el primero, sin esperar a que termine.
+      if (index >= 0 && follower.settled(index)) {
+        const { judgement } = follower.result(index);
+        const said = judgementVerdict(judgement.heard, judgement.ok, slots[index].symbol);
         setVerdict(said.text);
         setVerdictKind(said.kind);
+        if (judgement.ok) {
+          setMarks((current) =>
+            current[index] === "bien" ? current : { ...current, [index]: "bien" },
+          );
+        }
+      }
+      // La marca definitiva llega cuando ya se oyeron las ventanas largas del tramo.
+      while (closed < slots.length && time > slots[closed].end + SLOT_GRACE_SECONDS) {
+        const position = closed;
+        const mark: Mark = follower.result(position).judgement.ok ? "bien" : "no";
+        setMarks((current) =>
+          current[position] === mark ? current : { ...current, [position]: mark },
+        );
         closed += 1;
       }
       if (time > songEnd + FINISH_GRACE_SECONDS) {
@@ -446,7 +459,7 @@ export function PracticePage() {
 
   function pick(index: number) {
     setPicked(index);
-    evidenceRef.current = new ChordEvidence(capoRef.current);
+    evidenceRef.current = freshEvidence();
   }
 
   if (!song) {
