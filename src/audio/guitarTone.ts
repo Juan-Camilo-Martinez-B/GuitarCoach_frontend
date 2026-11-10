@@ -218,10 +218,11 @@ export function playMidi(midi: number, when = 0, hold = 2.4, velocity = 0.8): vo
   });
 }
 
-export function playChord(chord: ChordShape): void {
+export function playChord(chord: ChordShape, capo = 0): void {
   void performStrums(
     (start) => [{ chord, direction: "abajo", at: start, velocity: 0.7, quarter: 1 }],
     [chord],
+    capo,
   );
 }
 
@@ -272,11 +273,13 @@ export async function playPattern(
   chord: ChordShape,
   bpm: number,
   pattern: StrumPattern = STRUM_LAMENTO,
+  capo = 0,
 ): Promise<StrumHit[]> {
   const hits = strumHits([4], bpm, pattern);
   const delay = await performStrums(
     hitPlans(hits, () => chord, bpm, pattern, freshRandom()),
     [chord],
+    capo,
   );
   return shifted(hits, delay);
 }
@@ -286,12 +289,14 @@ export async function playSlots(
   lengths: number[],
   bpm: number,
   pattern: StrumPattern = STRUM_LAMENTO,
+  capo = 0,
 ): Promise<StrumHit[]> {
   const hits = strumHits(lengths, bpm, pattern);
   const present = chords.filter((chord): chord is ChordShape => chord !== null);
   const delay = await performStrums(
     hitPlans(hits, (hit) => chords[hit.slot] ?? null, bpm, pattern, freshRandom()),
     present,
+    capo,
   );
   return shifted(hits, delay);
 }

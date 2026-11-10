@@ -115,7 +115,7 @@ En `/canciones` el usuario sube la **tablatura de Guitar Pro** de la canción (`
 
 - Reproductor por sección o de la canción entera, con velocidad del 50 al 100 %, cuenta de entrada, metrónomo, repetición y melodía si el archivo la trae. Cada sección suena con su propio rasgueo. La melodía va más fuerte que el rasgueo y en otro lado del estéreo, como una segunda guitarra.
 - **Melodía o guía armónica**: un cifrado no trae las notas de la canción. Cuando no hay notas escritas, la app ofrece una _guía armónica_ (la fundamental y la tercera de cada acorde). La marca con ese nombre y la deja apagada para que nadie la confunda con la melodía real. `hasWrittenMelody` también la reconoce en las guías que se guardaron antes de este cambio.
-- **Cejilla**: las notas escritas ya están en la altura que suena. Solo la guía armónica, que sale de las formas de los acordes, sube con la cejilla (`soundingMelody`).
+- **Cejilla**: las notas escritas ya están en la altura que suena. Solo la guía armónica, que sale de las formas de los acordes, sube con la cejilla (`soundingMelody`). Al practicar con micrófono, la guía pasa su cejilla a la práctica y lo que se oye se baja esos semitonos (`shapeChroma`) antes de compararlo: con cejilla en el traste 1 se espera la forma de Am, aunque suene Bbm.
 - La carta resalta el compás que suena, y el panel muestra el acorde actual y el siguiente.
 - **Corregir la guía**: cada sección se edita como `| G | D . C . |` (un tramo por compás, el punto prolonga el acorde) con un rasgueo `D-DU-UDU`. Al guardar se puede marcar como revisada.
 - **Practicar con el micrófono**: abre la práctica con la canción de la guía y su rasgueo; el intento queda para el informe.

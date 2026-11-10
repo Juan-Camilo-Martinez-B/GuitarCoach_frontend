@@ -52,6 +52,8 @@ export interface Song {
   chords: ChartChord[];
   /** Solo las guías lo saben; sin dato, la carta va en 4/4. */
   beatsPerBar?: number;
+  /** Traste de la cejilla; los acordes de la carta son las formas sobre ella. Sin dato, 0. */
+  capo?: number;
 }
 
 export interface TelemetryEvent {
