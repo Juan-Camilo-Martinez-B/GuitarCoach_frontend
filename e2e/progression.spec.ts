@@ -41,6 +41,10 @@ test.describe("la progresión con la página real", () => {
     const api = await openLamento(page, LAMENTO_BARS);
     await playSession(page);
     await expect(page.getByRole("button", { name: "Cerrar intento" })).toBeVisible();
+    // El veredicto llega en vivo desde el primer acorde, sin esperar a que termine el tramo.
+    await expect(page.locator(".verdict")).toContainText("Bien. Sonó", { timeout: 10_000 });
+    await expect(page.locator(".chart li").first()).toHaveClass(/is-now/);
+    await expect(page.locator(".chart li").first().locator("small")).toHaveText("Bien");
     await expect(page.locator(".verdict")).toContainText("Intento guardado", {
       timeout: SESSION_TIMEOUT,
     });

@@ -2,6 +2,9 @@
 
 ## Sin publicar
 
+- Progresión ya no pierde el acorde entre rasgueos: lo que sigue vibrando del acorde anterior no se le cuenta al nuevo cuando el cambio llega un poco tarde.
+- Progresión dice en vivo si el acorde iluminado suena bien, desde el primero, en vez de esperar a que termine cada tramo. En Acorde solo y Acorde y rasgueo el veredicto ya no salta en cada golpe.
+- Práctica respeta la cejilla de las canciones importadas, al escuchar y al sonar los acordes de referencia.
 - Al terminar una sesión de Progresión se puede empezar otra y abrir el informe de esa sesión con un botón.
 - Cerrar un intento sin haber oído ningún acorde ya no guarda un 0 %.
 - Práctica deja de ofrecer Notas y melodía. La melodía de una canción sigue en su lección y en su guía.

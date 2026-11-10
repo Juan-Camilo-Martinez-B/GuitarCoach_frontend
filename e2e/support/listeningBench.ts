@@ -127,7 +127,7 @@ export async function chordBench(
       onsets.push(event.at);
       follower.addOnset(event.at);
     } else if (event.type === "chord") {
-      follower.addChroma(event.onsetAt, event.at, event.windowSize, event.chroma);
+      follower.addChroma(event);
     }
   }
   let correct = 0;
@@ -182,7 +182,7 @@ export async function wrongChordBench(
   );
   for (const event of events) {
     if (event.type === "chord") {
-      follower.addChroma(event.onsetAt, event.at, event.windowSize, event.chroma);
+      follower.addChroma(event);
     }
   }
   return {

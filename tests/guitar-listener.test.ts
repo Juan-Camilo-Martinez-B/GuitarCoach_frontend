@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { chordCandidates } from "../src/audio/dsp/chordRecognizer";
 import { GuitarListener, type ListenerEvent } from "../src/audio/listening/guitarListener";
 import {
+  ChordEvidence,
   ChordScoreFollower,
   MelodyFollower,
   shapeChroma,
@@ -13,6 +14,7 @@ const SHAPES: Record<string, number[]> = {
   D: [50, 57, 62, 66],
   Em: [40, 47, 52, 55, 59, 64],
   C: [48, 52, 55, 60, 64],
+  Am: [45, 52, 57, 60, 64],
 };
 
 /** Una cuerda pulsada aproximada: armónicos que decaen y ruido del ataque. */
@@ -95,7 +97,7 @@ describe("oyente de guitarra", () => {
       if (event.type === "onset") {
         follower.addOnset(event.at);
       } else if (event.type === "chord") {
-        follower.addChroma(event.onsetAt, event.at, event.windowSize, event.chroma);
+        follower.addChroma(event);
       }
     }
     progression.forEach((symbol, index) => {
@@ -130,13 +132,97 @@ describe("oyente de guitarra", () => {
     );
     for (const event of listen(samples)) {
       if (event.type === "chord") {
-        withCapo.addChroma(event.onsetAt, event.at, event.windowSize, event.chroma);
-        withoutCapo.addChroma(event.onsetAt, event.at, event.windowSize, event.chroma);
+        withCapo.addChroma(event);
+        withoutCapo.addChroma(event);
       }
     }
     progression.forEach((symbol, index) => {
       expect(withCapo.result(index).judgement.ok, `${symbol} con cejilla ${capo}`).toBe(true);
       expect(withoutCapo.result(index).judgement.ok).toBe(false);
+    });
+  });
+
+  it("no pierde el acorde entre los rasgueos de un patrón con golpes arriba", () => {
+    const progression = ["G", "D", "Em", "C", "Am", "G"];
+    const beat = 60 / 100;
+    const bar = beat * 4;
+    const lead = 0.4;
+    const samples = new Float32Array(Math.ceil(RATE * (lead + progression.length * bar + 1)));
+    // D-DU-UDU: abajo suenan todas las cuerdas; arriba, las agudas y de la primera a la sexta.
+    const pattern: Array<[number, "abajo" | "arriba"]> = [
+      [0, "abajo"],
+      [1, "abajo"],
+      [1.5, "arriba"],
+      [2.5, "arriba"],
+      [3, "abajo"],
+      [3.5, "arriba"],
+    ];
+    progression.forEach((symbol, index) => {
+      const chordStart = lead + index * bar;
+      for (const [offset, direction] of pattern) {
+        const strings =
+          direction === "abajo" ? SHAPES[symbol] : [...SHAPES[symbol]].reverse().slice(0, 4);
+        const at = chordStart + offset * beat;
+        strings.forEach((midi, order) =>
+          pluck(
+            samples,
+            midi,
+            at + order * 0.006,
+            chordStart + bar - at,
+            direction === "abajo" ? 0.12 : 0.08,
+          ),
+        );
+      }
+    });
+    const follower = new ChordScoreFollower(
+      progression.map((symbol, index) => ({
+        symbol,
+        at: lead + index * bar,
+        end: lead + (index + 1) * bar,
+      })),
+      (symbol) => chordCandidates(symbol, progression),
+    );
+    for (const event of listen(samples)) {
+      if (event.type === "onset") {
+        follower.addOnset(event.at);
+      } else if (event.type === "chord") {
+        follower.addChroma(event);
+      }
+    }
+    progression.forEach((symbol, index) => {
+      expect(follower.result(index).judgement.ok, `${symbol} en el tramo ${index}`).toBe(true);
+    });
+  });
+
+  it("no le cuenta al acorde nuevo lo que sigue vibrando del anterior si se cambia tarde", () => {
+    // Con el reparto anterior, este caso acertaba 2 de 8 tramos.
+    const progression = ["G", "Em", "C", "D", "Am", "G", "D", "Em"];
+    const bar = 0.8;
+    const lead = 0.4;
+    const late = 0.3;
+    const samples = new Float32Array(Math.ceil(RATE * (lead + progression.length * bar + 1)));
+    progression.forEach((symbol, index) => {
+      const at = lead + index * bar + (index === 0 ? 0 : late);
+      // Un solo golpe que vibra hasta el siguiente: el cambio llega tarde y sin apagar cuerdas.
+      SHAPES[symbol].forEach((midi, order) => pluck(samples, midi, at + order * 0.006, bar + late));
+    });
+    const follower = new ChordScoreFollower(
+      progression.map((symbol, index) => ({
+        symbol,
+        at: lead + index * bar,
+        end: lead + (index + 1) * bar,
+      })),
+      (symbol) => chordCandidates(symbol, progression),
+    );
+    for (const event of listen(samples)) {
+      if (event.type === "onset") {
+        follower.addOnset(event.at);
+      } else if (event.type === "chord") {
+        follower.addChroma(event);
+      }
+    }
+    progression.forEach((symbol, index) => {
+      expect(follower.result(index).judgement.ok, `${symbol} en el tramo ${index}`).toBe(true);
     });
   });
 
@@ -169,6 +255,31 @@ describe("oyente de guitarra", () => {
     );
     expect(notes[0]).toBe(55);
     expect(notes).toContain(57);
+  });
+});
+
+describe("evidencia de un acorde", () => {
+  function frame(at: number, windowSize: number, pitches: number[]) {
+    const chroma = new Float32Array(12);
+    pitches.forEach((pitch) => (chroma[pitch] = 1));
+    return { onsetAt: null, from: at - 0.1, at, windowSize, chroma };
+  }
+  const G = [7, 11, 2];
+  const D = [2, 6, 9];
+
+  it("no da un veredicto firme con solo el primer instante del golpe", () => {
+    const evidence = new ChordEvidence();
+    evidence.add(frame(0.05, 2048, G), ["G", "D"]);
+    expect(evidence.settled).toBe(false);
+    evidence.add(frame(0.1, 4096, G), ["G", "D"]);
+    expect(evidence.settled).toBe(true);
+  });
+
+  it("al escuchar sin tiempo marcado solo cuenta lo reciente", () => {
+    const evidence = new ChordEvidence(0, 1.5);
+    [0.2, 0.4, 0.6].forEach((at) => evidence.add(frame(at, 8192, D), ["G", "D"]));
+    [2.4, 2.6].forEach((at) => evidence.add(frame(at, 8192, G), ["G", "D"]));
+    expect(evidence.judge("G").ok).toBe(true);
   });
 });
 

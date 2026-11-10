@@ -15,6 +15,8 @@ export interface OnsetEvent {
 export interface ChordFrameEvent {
   type: "chord";
   onsetAt: number | null;
+  /** Inicio de la ventana analizada, en segundos del reloj de audio. */
+  from: number;
   at: number;
   windowSize: number;
   chroma: Float32Array;
@@ -279,6 +281,7 @@ export class GuitarListener {
       this.emit({
         type: "chord",
         onsetAt: this.seconds(onset),
+        from: this.seconds(start),
         at: this.seconds(start + size),
         windowSize: size,
         chroma,
@@ -303,6 +306,7 @@ export class GuitarListener {
       this.emit({
         type: "chord",
         onsetAt: null,
+        from: this.seconds(end - SUSTAIN_WINDOW),
         at: this.seconds(end),
         windowSize: SUSTAIN_WINDOW,
         chroma,
