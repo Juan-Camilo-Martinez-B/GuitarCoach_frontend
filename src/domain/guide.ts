@@ -454,21 +454,39 @@ export function totalBeats(guide: SongGuide): number {
   return Math.max(0, ...ends);
 }
 
-/** La canción plana que usan la práctica con micrófono y el informe. */
-export function songFromGuide(record: GuideRecord): Song | null {
+/**
+ * La canción plana que usan la práctica con micrófono y el informe. Con `sectionIndex` solo
+ * entra esa sección: un acorde que viene sonando de antes empieza donde empieza la sección.
+ * Los compases conservan su número en la canción, así el informe los ubica.
+ */
+export function songFromGuide(record: GuideRecord, sectionIndex?: number): Song | null {
   if (record.songId === null) {
     return null;
   }
   const { guide } = record;
+  const section = sectionIndex === undefined ? undefined : guide.sections[sectionIndex];
+  if (sectionIndex !== undefined && !section) {
+    return null;
+  }
+  const from = section ? section.start : -Infinity;
+  const to = section ? section.start + section.beats : Infinity;
+  const chords = guide.chords.flatMap((chord) =>
+    chord.start < to - EPSILON && from < chord.start + chord.beats - EPSILON
+      ? [{ ...chord, start: Math.max(chord.start, from) }]
+      : [],
+  );
+  if (section && chords.length === 0) {
+    return null;
+  }
   return {
     id: record.songId,
-    title: guide.title,
+    title: section ? `${guide.title} · ${section.name}` : guide.title,
     artist: guide.artist,
     songKey: guide.song_key ?? "",
     bpm: guide.bpm,
     beatsPerBar: guide.beats_per_bar,
     capo: guide.capo,
-    chords: guide.chords.map((chord) => ({
+    chords: chords.map((chord) => ({
       bar: Math.floor(chord.start / guide.beats_per_bar + EPSILON) + 1,
       beat: Math.round((chord.start % guide.beats_per_bar) * 1000) / 1000 + 1,
       chord: chord.chord,

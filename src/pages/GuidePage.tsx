@@ -349,19 +349,27 @@ export function GuidePage() {
     if (!record || !guide) {
       return;
     }
-    const song = songFromGuide(record);
+    // Con una sección elegida, el micrófono escucha solo esa parte de la canción.
+    const part = range === "all" ? undefined : range;
+    const song = songFromGuide(record, part);
     if (!song) {
       return;
     }
     stop();
     setSong(song);
-    const sectionIndex = range === "all" ? 0 : range;
-    const section = guide.sections[sectionIndex];
-    const inferred = hasInferredTiming(guide, section.start, section.start + section.beats);
+    const sectionIndex = part ?? 0;
+    const from = part === undefined ? 0 : guide.sections[part].start;
+    const to =
+      part === undefined
+        ? totalBeats(guide)
+        : guide.sections[part].start + guide.sections[part].beats;
+    const inferred = hasInferredTiming(guide, from, to);
     setScoreTiming(!inferred);
     setPracticePattern(inferred ? null : sectionPattern(guide, sectionIndex));
     try {
-      setStudy(await new ApiClient(apiUrl, fetch, token).songStudy(song.id));
+      const study = await new ApiClient(apiUrl, fetch, token).songStudy(song.id);
+      // El estudio describe la canción entera: en una sección mandan los acordes de esa parte.
+      setStudy(part === undefined ? study : { ...study, chords: [] });
     } catch {
       setStudy(null);
     }

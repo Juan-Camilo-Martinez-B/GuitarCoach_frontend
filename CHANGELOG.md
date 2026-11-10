@@ -2,6 +2,7 @@
 
 ## Sin publicar
 
+- Practicar con el micrófono desde Mi progreso escucha solo la parte elegida (por ejemplo, el coro) en vez de la canción entera.
 - Progresión ya no pierde el acorde entre rasgueos: lo que sigue vibrando del acorde anterior no se le cuenta al nuevo cuando el cambio llega un poco tarde.
 - Progresión dice en vivo si el acorde iluminado suena bien, desde el primero, en vez de esperar a que termine cada tramo. En Acorde solo y Acorde y rasgueo el veredicto ya no salta en cada golpe.
 - Práctica respeta la cejilla de las canciones importadas, al escuchar y al sonar los acordes de referencia.

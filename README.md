@@ -119,7 +119,7 @@ En `/canciones` el usuario sube la **tablatura de Guitar Pro** de la canción (`
 - **Cejilla**: las notas escritas ya están en la altura que suena. Solo la guía armónica, que sale de las formas de los acordes, sube con la cejilla (`soundingMelody`). Al practicar con micrófono, la guía pasa su cejilla a la práctica y lo que se oye se baja esos semitonos (`shapeChroma`) antes de compararlo: con cejilla en el traste 1 se espera la forma de Am, aunque suene Bbm.
 - La carta resalta el compás que suena, y el panel muestra el acorde actual y el siguiente.
 - **Corregir la guía**: cada sección se edita como `| G | D . C . |` (un tramo por compás, el punto prolonga el acorde) con un rasgueo `D-DU-UDU`. Al guardar se puede marcar como revisada.
-- **Practicar con el micrófono**: abre la práctica con la canción de la guía y su rasgueo; el intento queda para el informe.
+- **Practicar con el micrófono**: abre la práctica con la parte elegida en "Qué parte tocar" (toda la canción o una sección, como el coro) y su rasgueo. Con una sección solo se escuchan sus acordes; un acorde que viene sonando de antes entra desde donde empieza la sección, y los compases conservan su número en la canción para el informe.
 
 La lógica pura vive en `src/domain/guide.ts` (golpes por sección, notación de compases y rasgueo, edición de secciones) y el audio en `playGuide` de `src/audio/guitarTone.ts`. El clic del metrónomo (`src/audio/guitar/metronome.ts`) no pasa por la reverberación, para sonar seco.
 
